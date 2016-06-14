@@ -18,15 +18,143 @@
  */
 #include "config.h"
 #include "cpu.h"
+#include "trace.h"
 #include "disas/disas.h"
 #include "tcg.h"
 #include "qemu/atomic.h"
 #include "sysemu/qtest.h"
-
 #include "qemu/timer.h"
-extern target_ulong funcaddr[];
-extern int funccount;
-extern int id;
+#include "exec/address-spaces.h"
+#include "exec/memory-internal.h"
+#include "qemu/rcu.h"
+#include "exec/tb-hash.h"
+
+
+ ////////////////////////////////////////////////////
+//added by aquan
+#include "header/Stack.h"
+//#include "header/Stack.c"
+#include "header/List.h"
+//#include "header/List.c"
+//added by aquan
+////////////////////////////////////////////////////
+
+
+/* -icount align implementation. */
+
+typedef struct SyncClocks {
+    int64_t diff_clk;
+    int64_t last_cpu_icount;
+    int64_t realtime_clock;
+} SyncClocks;
+
+#if !defined(CONFIG_USER_ONLY)
+/* Allow the guest to have a max 3ms advance.
+ * The difference between the 2 clocks could therefore
+ * oscillate around 0.
+ */
+#define VM_CLOCK_ADVANCE 3000000
+#define THRESHOLD_REDUCE 1.5
+#define MAX_DELAY_PRINT_RATE 2000000000LL
+#define MAX_NB_PRINTS 100
+
+/////////////////////////////////////////
+static int printList(threadList* a,void *e){
+    while(!isStackEmpty(a->stack)){
+        logData ld;
+        popStack(a->stack,&ld);
+       // printf("##: %c  ",ld.type);
+	    qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+    }
+    qemu_log("__________________________\n");
+    return 0;
+}
+
+ //////////////////////////////////////
+
+
+
+
+static void align_clocks(SyncClocks *sc, const CPUState *cpu)
+{
+    int64_t cpu_icount;
+
+    if (!icount_align_option) {
+        return;
+    }
+
+    cpu_icount = cpu->icount_extra + cpu->icount_decr.u16.low;
+    sc->diff_clk += cpu_icount_to_ns(sc->last_cpu_icount - cpu_icount);
+    sc->last_cpu_icount = cpu_icount;
+
+    if (sc->diff_clk > VM_CLOCK_ADVANCE) {
+#ifndef _WIN32
+        struct timespec sleep_delay, rem_delay;
+        sleep_delay.tv_sec = sc->diff_clk / 1000000000LL;
+        sleep_delay.tv_nsec = sc->diff_clk % 1000000000LL;
+        if (nanosleep(&sleep_delay, &rem_delay) < 0) {
+            sc->diff_clk = rem_delay.tv_sec * 1000000000LL + rem_delay.tv_nsec;
+        } else {
+            sc->diff_clk = 0;
+        }
+#else
+        Sleep(sc->diff_clk / SCALE_MS);
+        sc->diff_clk = 0;
+#endif
+    }
+}
+
+static void print_delay(const SyncClocks *sc)
+{
+    static float threshold_delay;
+    static int64_t last_realtime_clock;
+    static int nb_prints;
+
+    if (icount_align_option &&
+        sc->realtime_clock - last_realtime_clock >= MAX_DELAY_PRINT_RATE &&
+        nb_prints < MAX_NB_PRINTS) {
+        if ((-sc->diff_clk / (float)1000000000LL > threshold_delay) ||
+            (-sc->diff_clk / (float)1000000000LL <
+             (threshold_delay - THRESHOLD_REDUCE))) {
+            threshold_delay = (-sc->diff_clk / 1000000000LL) + 1;
+            printf("Warning: The guest is now late by %.1f to %.1f seconds\n",
+                   threshold_delay - 1,
+                   threshold_delay);
+            nb_prints++;
+            last_realtime_clock = sc->realtime_clock;
+        }
+    }
+}
+
+static void init_delay_params(SyncClocks *sc,
+                              const CPUState *cpu)
+{
+    if (!icount_align_option) {
+        return;
+    }
+    sc->realtime_clock = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL_RT);
+    sc->diff_clk = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - sc->realtime_clock;
+    sc->last_cpu_icount = cpu->icount_extra + cpu->icount_decr.u16.low;
+    if (sc->diff_clk < max_delay) {
+        max_delay = sc->diff_clk;
+    }
+    if (sc->diff_clk > max_advance) {
+        max_advance = sc->diff_clk;
+    }
+
+    /* Print every 2s max if the guest is late. We limit the number
+       of printed messages to NB_PRINT_MAX(currently 100) */
+    print_delay(sc);
+}
+#else
+static void align_clocks(SyncClocks *sc, const CPUState *cpu)
+{
+}
+
+static void init_delay_params(SyncClocks *sc, const CPUState *cpu)
+{
+}
+#endif /* CONFIG USER ONLY */
 
 void cpu_loop_exit(CPUState *cpu)
 {
@@ -44,6 +172,33 @@ void cpu_resume_from_signal(CPUState *cpu, void *puc)
 
     cpu->exception_index = -1;
     siglongjmp(cpu->jmp_env, 1);
+}
+
+void cpu_reload_memory_map(CPUState *cpu)
+{
+    AddressSpaceDispatch *d;
+
+    if (qemu_in_vcpu_thread()) {
+        /* Do not let the guest prolong the critical section as much as it
+         * as it desires.
+         *
+         * Currently, this is prevented by the I/O thread's periodinc kicking
+         * of the VCPU thread (iothread_requesting_mutex, qemu_cpu_kick_thread)
+         * but this will go away once TCG's execution moves out of the global
+         * mutex.
+         *
+         * This pair matches cpu_exec's rcu_read_lock()/rcu_read_unlock(), which
+         * only protects cpu->as->dispatch.  Since we reload it below, we can
+         * split the critical section.
+         */
+        rcu_read_unlock();
+        rcu_read_lock();
+    }
+
+    /* The CPU and TLB are protected by the iothread lock.  */
+    d = atomic_rcu_read(&cpu->as->dispatch);
+    cpu->memory_dispatch = d;
+    tlb_flush(cpu, 1);
 }
 #endif
 
@@ -69,7 +224,12 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, uint8_t *tb_ptr)
     }
 #endif /* DEBUG_DISAS */
 
+    cpu->can_do_io = !use_icount;
     next_tb = tcg_qemu_tb_exec(env, tb_ptr);
+    cpu->can_do_io = 1;
+    trace_exec_tb_exit((void *) (next_tb & ~TB_EXIT_MASK),
+                       next_tb & TB_EXIT_MASK);
+
     if ((next_tb & TB_EXIT_MASK) > TB_EXIT_IDX1) {
         /* We didn't start executing this TB (eg because the instruction
          * counter hit zero); we must restore the guest PC to the address
@@ -95,10 +255,9 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, uint8_t *tb_ptr)
 
 /* Execute the code without caching the generated code. An interpreter
    could be used if available. */
-static void cpu_exec_nocache(CPUArchState *env, int max_cycles,
+static void cpu_exec_nocache(CPUState *cpu, int max_cycles,
                              TranslationBlock *orig_tb)
 {
-    CPUState *cpu = ENV_GET_CPU(env);
     TranslationBlock *tb;
 
     /* Should never happen.
@@ -107,21 +266,24 @@ static void cpu_exec_nocache(CPUArchState *env, int max_cycles,
         max_cycles = CF_COUNT_MASK;
 
     tb = tb_gen_code(cpu, orig_tb->pc, orig_tb->cs_base, orig_tb->flags,
-                     max_cycles);
+                     max_cycles | CF_NOCACHE);
+    tb->orig_tb = tcg_ctx.tb_ctx.tb_invalidated_flag ? NULL : orig_tb;
     cpu->current_tb = tb;
     /* execute the generated code */
+    qemu_log("nocache "TARGET_FMT_lx"\n",tb->pc);
+    trace_exec_tb_nocache(tb, tb->pc);
     cpu_tb_exec(cpu, tb->tc_ptr);
     cpu->current_tb = NULL;
     tb_phys_invalidate(tb, -1);
     tb_free(tb);
 }
 
-static TranslationBlock *tb_find_slow(CPUArchState *env,
+static TranslationBlock *tb_find_slow(CPUState *cpu,
                                       target_ulong pc,
                                       target_ulong cs_base,
                                       uint64_t flags)
 {
-    CPUState *cpu = ENV_GET_CPU(env);
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb, **ptb1;
     unsigned int h;
     tb_page_addr_t phys_pc, phys_page1;
@@ -173,9 +335,9 @@ static TranslationBlock *tb_find_slow(CPUArchState *env,
     return tb;
 }
 
-static inline TranslationBlock *tb_find_fast(CPUArchState *env)
+static inline TranslationBlock *tb_find_fast(CPUState *cpu)
 {
-    CPUState *cpu = ENV_GET_CPU(env);
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb;
     target_ulong cs_base, pc;
     int flags;
@@ -187,21 +349,14 @@ static inline TranslationBlock *tb_find_fast(CPUArchState *env)
     tb = cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)];
     if (unlikely(!tb || tb->pc != pc || tb->cs_base != cs_base ||
                  tb->flags != flags)) {
-        tb = tb_find_slow(env, pc, cs_base, flags);
+        tb = tb_find_slow(cpu, pc, cs_base, flags);
     }
     return tb;
 }
 
-static CPUDebugExcpHandler *debug_excp_handler;
-
-void cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler)
+static void cpu_handle_debug_exception(CPUState *cpu)
 {
-    debug_excp_handler = handler;
-}
-
-static void cpu_handle_debug_exception(CPUArchState *env)
-{
-    CPUState *cpu = ENV_GET_CPU(env);
+    CPUClass *cc = CPU_GET_CLASS(cpu);
     CPUWatchpoint *wp;
 
     if (!cpu->watchpoint_hit) {
@@ -209,61 +364,81 @@ static void cpu_handle_debug_exception(CPUArchState *env)
             wp->flags &= ~BP_WATCHPOINT_HIT;
         }
     }
-    if (debug_excp_handler) {
-        debug_excp_handler(env);
-    }
+
+    cc->debug_excp_handler(cpu);
 }
 
-#ifndef TARGET_X86_64
+struct link_map{
+    target_ulong l_addr;
+    target_ulong l_name;
+    target_ulong l_ld;
+    target_ulong l_next;
+};
+
+extern target_ulong kernel_start,kernel_end,funcaddr[];
+extern char funcargv[][6],target[];
+extern int funccount;
+const int argorder[6]={R_EDI,R_ESI,R_EDX,R_ECX,8,9};
+
+bool output=false;
+
 static int funcistraced(target_ulong target)
 {
-	int low=0,high=funccount-1,mid;
-	while(low<=high){
-		mid=(low+high)>>1;
-		if(funcaddr[mid]>target)
-			high=mid-1;
-		else if(funcaddr[mid]<target)
-			low=mid+1;
-		else
-			return mid;
-	}
-	return -1;
+    int low=0,high=funccount-1,mid;
+    while(low<=high){
+        mid=(low+high)>>1;
+        if(funcaddr[mid]>target)
+            high=mid-1;
+        else if(funcaddr[mid]<target)
+            low=mid+1;
+        else
+            return mid;
+    }
+    return -1;
 }
-#endif
 
 /* main execution loop */
 
 volatile sig_atomic_t exit_request;
 
-int cpu_exec(CPUArchState *env)
+////////////////////////////////////////////////////
+//added by aquan
+List L;
+threadList* curThread;
+Stack* s;
+threadList* tl ;
+logData ld,ldPop;
+int countCpuExec=0;
+//added by aquan
+////////////////////////////////////////////////////
+int cpu_exec(CPUState *cpu)
 {
-    CPUState *cpu = ENV_GET_CPU(env);
-#if !(defined(CONFIG_USER_ONLY) && \
-      (defined(TARGET_M68K) || defined(TARGET_PPC) || defined(TARGET_S390X)))
+
+////////////////////////////////////////////////////
+//added by aquan
+    if(countCpuExec==0){
+        initList(&L,sizeof(threadList));
+        curThread = malloc(sizeof(threadList));
+        countCpuExec=1;
+    }
+//added by aquan
+////////////////////////////////////////////////////
+
+
+
     CPUClass *cc = CPU_GET_CLASS(cpu);
-#endif
 #ifdef TARGET_I386
     X86CPU *x86_cpu = X86_CPU(cpu);
+    CPUArchState *env = &x86_cpu->env;
 #endif
     int ret, interrupt_request;
     TranslationBlock *tb;
     uint8_t *tc_ptr;
     uintptr_t next_tb;
+    SyncClocks sc;
+
     /* This must be volatile so it is not trashed by longjmp() */
     volatile bool have_tb_lock = false;
-    
-    uint8_t lasttbtype=TB_DEFAULT; 
-	bool isoutput=false;
-#ifdef TARGET_I386
-	target_ulong kernel_start,kernel_end,busybox_start,busybox_end,modules_addr;
-	char modulename[64-sizeof(unsigned long)];
-	
-	if (qemu_loglevel_mask(CPU_LOG_FUNC)) {
-		FILE *addrs_file = fopen("addrs", "r"); 
-		if(fscanf(addrs_file,TARGET_FMT_lx TARGET_FMT_lx TARGET_FMT_lx TARGET_FMT_lx TARGET_FMT_lx,&kernel_start,&kernel_end,&busybox_start,&busybox_end,&modules_addr))
-			fclose(addrs_file); 
-	}
-#endif
 
     if (cpu->halted) {
         if (!cpu_has_work(cpu)) {
@@ -283,40 +458,20 @@ int cpu_exec(CPUArchState *env)
      * an instruction scheduling constraint on modern architectures.  */
     smp_mb();
 
+    rcu_read_lock();
+
     if (unlikely(exit_request)) {
         cpu->exit_request = 1;
     }
 
-#if defined(TARGET_I386)
-    /* put eflags in CPU temporary format */
-    CC_SRC = env->eflags & (CC_O | CC_S | CC_Z | CC_A | CC_P | CC_C);
-    env->df = 1 - (2 * ((env->eflags >> 10) & 1));
-    CC_OP = CC_OP_EFLAGS;
-    env->eflags &= ~(DF_MASK | CC_O | CC_S | CC_Z | CC_A | CC_P | CC_C);
-#elif defined(TARGET_SPARC)
-#elif defined(TARGET_M68K)
-    env->cc_op = CC_OP_FLAGS;
-    env->cc_dest = env->sr & 0xf;
-    env->cc_x = (env->sr >> 4) & 1;
-#elif defined(TARGET_ALPHA)
-#elif defined(TARGET_ARM)
-#elif defined(TARGET_UNICORE32)
-#elif defined(TARGET_PPC)
-    env->reserve_addr = -1;
-#elif defined(TARGET_LM32)
-#elif defined(TARGET_MICROBLAZE)
-#elif defined(TARGET_MIPS)
-#elif defined(TARGET_MOXIE)
-#elif defined(TARGET_OPENRISC)
-#elif defined(TARGET_SH4)
-#elif defined(TARGET_CRIS)
-#elif defined(TARGET_S390X)
-#elif defined(TARGET_XTENSA)
-    /* XXXXX */
-#else
-#error unsupported target CPU
-#endif
-    cpu->exception_index = -1;
+    cc->cpu_exec_enter(cpu);
+
+    /* Calculate difference between guest clock and host clock.
+     * This delay includes the delay of the last cycle, so
+     * what we have to do is sleep until it is 0. As for the
+     * advance/delay we gain here, we try to fix it next time.
+     */
+    init_delay_params(&sc, cpu);
 
     /* prepare setjmp context for exception handling */
     for(;;) {
@@ -327,8 +482,9 @@ int cpu_exec(CPUArchState *env)
                     /* exit request from the cpu execution loop */
                     ret = cpu->exception_index;
                     if (ret == EXCP_DEBUG) {
-                        cpu_handle_debug_exception(env);
+                        cpu_handle_debug_exception(cpu);
                     }
+                    cpu->exception_index = -1;
                     break;
                 } else {
 #if defined(CONFIG_USER_ONLY)
@@ -339,6 +495,7 @@ int cpu_exec(CPUArchState *env)
                     cc->do_interrupt(cpu);
 #endif
                     ret = cpu->exception_index;
+                    cpu->exception_index = -1;
                     break;
 #else
                     cc->do_interrupt(cpu);
@@ -360,270 +517,33 @@ int cpu_exec(CPUArchState *env)
                         cpu->exception_index = EXCP_DEBUG;
                         cpu_loop_exit(cpu);
                     }
-#if defined(TARGET_ARM) || defined(TARGET_SPARC) || defined(TARGET_MIPS) || \
-    defined(TARGET_PPC) || defined(TARGET_ALPHA) || defined(TARGET_CRIS) || \
-    defined(TARGET_MICROBLAZE) || defined(TARGET_LM32) || defined(TARGET_UNICORE32)
                     if (interrupt_request & CPU_INTERRUPT_HALT) {
                         cpu->interrupt_request &= ~CPU_INTERRUPT_HALT;
                         cpu->halted = 1;
                         cpu->exception_index = EXCP_HLT;
                         cpu_loop_exit(cpu);
                     }
-#endif
 #if defined(TARGET_I386)
-#if !defined(CONFIG_USER_ONLY)
-                    if (interrupt_request & CPU_INTERRUPT_POLL) {
-                        cpu->interrupt_request &= ~CPU_INTERRUPT_POLL;
-                        apic_poll_irq(x86_cpu->apic_state);
-                    }
-#endif
                     if (interrupt_request & CPU_INTERRUPT_INIT) {
-                            cpu_svm_check_intercept_param(env, SVM_EXIT_INIT,
-                                                          0);
-                            do_cpu_init(x86_cpu);
-                            cpu->exception_index = EXCP_HALTED;
-                            cpu_loop_exit(cpu);
-                    } else if (interrupt_request & CPU_INTERRUPT_SIPI) {
-                            do_cpu_sipi(x86_cpu);
-                    } else if (env->hflags2 & HF2_GIF_MASK) {
-                        if ((interrupt_request & CPU_INTERRUPT_SMI) &&
-                            !(env->hflags & HF_SMM_MASK)) {
-                            cpu_svm_check_intercept_param(env, SVM_EXIT_SMI,
-                                                          0);
-                            cpu->interrupt_request &= ~CPU_INTERRUPT_SMI;
-                            do_smm_enter(x86_cpu);
-                            next_tb = 0;
-                        } else if ((interrupt_request & CPU_INTERRUPT_NMI) &&
-                                   !(env->hflags2 & HF2_NMI_MASK)) {
-                            cpu->interrupt_request &= ~CPU_INTERRUPT_NMI;
-                            env->hflags2 |= HF2_NMI_MASK;
-                            do_interrupt_x86_hardirq(env, EXCP02_NMI, 1);
-                            next_tb = 0;
-                        } else if (interrupt_request & CPU_INTERRUPT_MCE) {
-                            cpu->interrupt_request &= ~CPU_INTERRUPT_MCE;
-                            do_interrupt_x86_hardirq(env, EXCP12_MCHK, 0);
-                            next_tb = 0;
-                        } else if ((interrupt_request & CPU_INTERRUPT_HARD) &&
-                                   (((env->hflags2 & HF2_VINTR_MASK) && 
-                                     (env->hflags2 & HF2_HIF_MASK)) ||
-                                    (!(env->hflags2 & HF2_VINTR_MASK) && 
-                                     (env->eflags & IF_MASK && 
-                                      !(env->hflags & HF_INHIBIT_IRQ_MASK))))) {
-                            int intno;
-                            cpu_svm_check_intercept_param(env, SVM_EXIT_INTR,
-                                                          0);
-                            cpu->interrupt_request &= ~(CPU_INTERRUPT_HARD |
-                                                        CPU_INTERRUPT_VIRQ);
-                            intno = cpu_get_pic_interrupt(env);
-                            qemu_log_mask(CPU_LOG_TB_IN_ASM, "Servicing hardware INT=0x%02x\n", intno);
-                            do_interrupt_x86_hardirq(env, intno, 1);
-                            /* ensure that no TB jump will be modified as
-                               the program flow was changed */
-                            next_tb = 0;
-#if !defined(CONFIG_USER_ONLY)
-                        } else if ((interrupt_request & CPU_INTERRUPT_VIRQ) &&
-                                   (env->eflags & IF_MASK) && 
-                                   !(env->hflags & HF_INHIBIT_IRQ_MASK)) {
-                            int intno;
-                            /* FIXME: this should respect TPR */
-                            cpu_svm_check_intercept_param(env, SVM_EXIT_VINTR,
-                                                          0);
-                            intno = ldl_phys(cpu->as,
-                                             env->vm_vmcb
-                                             + offsetof(struct vmcb,
-                                                        control.int_vector));
-                            qemu_log_mask(CPU_LOG_TB_IN_ASM, "Servicing virtual hardware INT=0x%02x\n", intno);
-                            do_interrupt_x86_hardirq(env, intno, 1);
-                            cpu->interrupt_request &= ~CPU_INTERRUPT_VIRQ;
-                            next_tb = 0;
-#endif
-                        }
+                        cpu_svm_check_intercept_param(env, SVM_EXIT_INIT, 0);
+                        do_cpu_init(x86_cpu);
+                        cpu->exception_index = EXCP_HALTED;
+                        cpu_loop_exit(cpu);
                     }
-#elif defined(TARGET_PPC)
-                    if ((interrupt_request & CPU_INTERRUPT_RESET)) {
+#else
+                    if (interrupt_request & CPU_INTERRUPT_RESET) {
                         cpu_reset(cpu);
                     }
-                    if (interrupt_request & CPU_INTERRUPT_HARD) {
-                        ppc_hw_interrupt(env);
-                        if (env->pending_interrupts == 0) {
-                            cpu->interrupt_request &= ~CPU_INTERRUPT_HARD;
-                        }
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_LM32)
-                    if ((interrupt_request & CPU_INTERRUPT_HARD)
-                        && (env->ie & IE_IE)) {
-                        cpu->exception_index = EXCP_IRQ;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_MICROBLAZE)
-                    if ((interrupt_request & CPU_INTERRUPT_HARD)
-                        && (env->sregs[SR_MSR] & MSR_IE)
-                        && !(env->sregs[SR_MSR] & (MSR_EIP | MSR_BIP))
-                        && !(env->iflags & (D_FLAG | IMM_FLAG))) {
-                        cpu->exception_index = EXCP_IRQ;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_MIPS)
-                    if ((interrupt_request & CPU_INTERRUPT_HARD) &&
-                        cpu_mips_hw_interrupts_pending(env)) {
-                        /* Raise it */
-                        cpu->exception_index = EXCP_EXT_INTERRUPT;
-                        env->error_code = 0;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_OPENRISC)
-                    {
-                        int idx = -1;
-                        if ((interrupt_request & CPU_INTERRUPT_HARD)
-                            && (env->sr & SR_IEE)) {
-                            idx = EXCP_INT;
-                        }
-                        if ((interrupt_request & CPU_INTERRUPT_TIMER)
-                            && (env->sr & SR_TEE)) {
-                            idx = EXCP_TICK;
-                        }
-                        if (idx >= 0) {
-                            cpu->exception_index = idx;
-                            cc->do_interrupt(cpu);
-                            next_tb = 0;
-                        }
-                    }
-#elif defined(TARGET_SPARC)
-                    if (interrupt_request & CPU_INTERRUPT_HARD) {
-                        if (cpu_interrupts_enabled(env) &&
-                            env->interrupt_index > 0) {
-                            int pil = env->interrupt_index & 0xf;
-                            int type = env->interrupt_index & 0xf0;
-
-                            if (((type == TT_EXTINT) &&
-                                  cpu_pil_allowed(env, pil)) ||
-                                  type != TT_EXTINT) {
-                                cpu->exception_index = env->interrupt_index;
-                                cc->do_interrupt(cpu);
-                                next_tb = 0;
-                            }
-                        }
-                    }
-#elif defined(TARGET_ARM)
-                    if (interrupt_request & CPU_INTERRUPT_FIQ
-                        && !(env->daif & PSTATE_F)) {
-                        cpu->exception_index = EXCP_FIQ;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-                    /* ARMv7-M interrupt return works by loading a magic value
-                       into the PC.  On real hardware the load causes the
-                       return to occur.  The qemu implementation performs the
-                       jump normally, then does the exception return when the
-                       CPU tries to execute code at the magic address.
-                       This will cause the magic PC value to be pushed to
-                       the stack if an interrupt occurred at the wrong time.
-                       We avoid this by disabling interrupts when
-                       pc contains a magic address.  */
-                    if (interrupt_request & CPU_INTERRUPT_HARD
-                        && ((IS_M(env) && env->regs[15] < 0xfffffff0)
-                            || !(env->daif & PSTATE_I))) {
-                        cpu->exception_index = EXCP_IRQ;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_UNICORE32)
-                    if (interrupt_request & CPU_INTERRUPT_HARD
-                        && !(env->uncached_asr & ASR_I)) {
-                        cpu->exception_index = UC32_EXCP_INTR;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_SH4)
-                    if (interrupt_request & CPU_INTERRUPT_HARD) {
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_ALPHA)
-                    {
-                        int idx = -1;
-                        /* ??? This hard-codes the OSF/1 interrupt levels.  */
-                        switch (env->pal_mode ? 7 : env->ps & PS_INT_MASK) {
-                        case 0 ... 3:
-                            if (interrupt_request & CPU_INTERRUPT_HARD) {
-                                idx = EXCP_DEV_INTERRUPT;
-                            }
-                            /* FALLTHRU */
-                        case 4:
-                            if (interrupt_request & CPU_INTERRUPT_TIMER) {
-                                idx = EXCP_CLK_INTERRUPT;
-                            }
-                            /* FALLTHRU */
-                        case 5:
-                            if (interrupt_request & CPU_INTERRUPT_SMP) {
-                                idx = EXCP_SMP_INTERRUPT;
-                            }
-                            /* FALLTHRU */
-                        case 6:
-                            if (interrupt_request & CPU_INTERRUPT_MCHK) {
-                                idx = EXCP_MCHK;
-                            }
-                        }
-                        if (idx >= 0) {
-                            cpu->exception_index = idx;
-                            env->error_code = 0;
-                            cc->do_interrupt(cpu);
-                            next_tb = 0;
-                        }
-                    }
-#elif defined(TARGET_CRIS)
-                    if (interrupt_request & CPU_INTERRUPT_HARD
-                        && (env->pregs[PR_CCS] & I_FLAG)
-                        && !env->locked_irq) {
-                        cpu->exception_index = EXCP_IRQ;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-                    if (interrupt_request & CPU_INTERRUPT_NMI) {
-                        unsigned int m_flag_archval;
-                        if (env->pregs[PR_VR] < 32) {
-                            m_flag_archval = M_FLAG_V10;
-                        } else {
-                            m_flag_archval = M_FLAG_V32;
-                        }
-                        if ((env->pregs[PR_CCS] & m_flag_archval)) {
-                            cpu->exception_index = EXCP_NMI;
-                            cc->do_interrupt(cpu);
-                            next_tb = 0;
-                        }
-                    }
-#elif defined(TARGET_M68K)
-                    if (interrupt_request & CPU_INTERRUPT_HARD
-                        && ((env->sr & SR_I) >> SR_I_SHIFT)
-                            < env->pending_level) {
-                        /* Real hardware gets the interrupt vector via an
-                           IACK cycle at this point.  Current emulated
-                           hardware doesn't rely on this, so we
-                           provide/save the vector when the interrupt is
-                           first signalled.  */
-                        cpu->exception_index = env->pending_vector;
-                        do_interrupt_m68k_hardirq(env);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_S390X) && !defined(CONFIG_USER_ONLY)
-                    if ((interrupt_request & CPU_INTERRUPT_HARD) &&
-                        (env->psw.mask & PSW_MASK_EXT)) {
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
-#elif defined(TARGET_XTENSA)
-                    if (interrupt_request & CPU_INTERRUPT_HARD) {
-                        cpu->exception_index = EXC_IRQ;
-                        cc->do_interrupt(cpu);
-                        next_tb = 0;
-                    }
 #endif
-                   /* Don't use the cached interrupt_request value,
-                      do_interrupt may have updated the EXITTB flag. */
+                    /* The target hook has 3 exit conditions:
+                       False when the interrupt isn't processed,
+                       True when it is, and we should restart on a new TB,
+                       and via longjmp via cpu_loop_exit.  */
+                    if (cc->cpu_exec_interrupt(cpu, interrupt_request)) {
+                        next_tb = 0;
+                    }
+                    /* Don't use the cached interrupt_request value,
+                       do_interrupt may have updated the EXITTB flag. */
                     if (cpu->interrupt_request & CPU_INTERRUPT_EXITTB) {
                         cpu->interrupt_request &= ~CPU_INTERRUPT_EXITTB;
                         /* ensure that no TB jump will be modified as
@@ -638,7 +558,7 @@ int cpu_exec(CPUArchState *env)
                 }
                 spin_lock(&tcg_ctx.tb_ctx.tb_lock);
                 have_tb_lock = true;
-                tb = tb_find_fast(env);
+                tb = tb_find_fast(cpu);
                 /* Note: we do it here to avoid a gcc bug on Mac OS X when
                    doing it in tb_find_slow */
                 if (tcg_ctx.tb_ctx.tb_invalidated_flag) {
@@ -652,120 +572,6 @@ int cpu_exec(CPUArchState *env)
                     qemu_log("Trace %p [" TARGET_FMT_lx "] %s\n",
                              tb->tc_ptr, tb->pc, lookup_symbol(tb->pc));
                 }
-                
-				if (qemu_loglevel_mask(CPU_LOG_FUNC)) { 
-#if defined(TARGET_I386)
-#ifdef TARGET_X86_64
-					if(isoutput){
-						if(lasttbtype==TB_CALL){
-							target_ulong module_core=0;
-							if(tb->pc>=kernel_start && tb->pc<=kernel_end)
-								strcpy(modulename,"kernel");
-							else if(tb->pc>=busybox_start && tb->pc<=busybox_end)
-								strcpy(modulename,"busybox");
-							else if(tb->pc>kernel_end){
-								target_ulong next_list,current_module_addr = modules_addr - 4;
-								uint32_t core_size;
-								cpu_memory_rw_debug(cpu,current_module_addr+4,(uint8_t *)&next_list,sizeof(next_list),0);
-								current_module_addr=next_list-4;
-								while(current_module_addr != modules_addr-4){
-									cpu_memory_rw_debug(cpu,current_module_addr+300,(uint8_t *)&module_core,sizeof(module_core),0);
-									cpu_memory_rw_debug(cpu,current_module_addr+312,(uint8_t *)&core_size,sizeof(core_size),0);
-									if(tb->pc>=module_core && tb->pc<module_core+core_size){
-										cpu_memory_rw_debug(cpu,current_module_addr+4+2*sizeof(target_ulong),(uint8_t *)&modulename,sizeof(modulename),0);
-										break;
-									}
-									target_ulong next_node;
-									cpu_memory_rw_debug(cpu,current_module_addr+4,(uint8_t *)&next_node,sizeof(target_ulong),0);
-									current_module_addr=next_node-4;
-								}
-							}else
-								strcpy(modulename,"");
-							qemu_log("0x%"PRIx64",0x%"PRIx64",%"PRIx64",%s,%"PRIx64"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cr[3],env->regs[R_ESP],modulename,tb->pc-module_core);
-						}else if(lasttbtype==TB_RET)
-							qemu_log("0x%"PRIx64",0x%"PRIx64",%"PRIx64"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cr[3],env->regs[R_ESP]-sizeof(target_ulong));
-						isoutput=false;
-					}
-						if(tb->type!=TB_DEFAULT){
-						lasttbtype=tb->type;
-						isoutput=true;
-					}
-#else
-					if(isoutput){
-						target_ulong pid=env->cr[3];
-						if(lasttbtype==TB_CALL){
-							id=funcistraced(tb->pc);
-							if(id!=-1){
-
-								target_ulong module_core=0;
-								uint32_t esp=env->regs[R_ESP];
-								uint32_t args[4];
-								if(pid==0)
-									strcpy(modulename,"");
-								else if(tb->pc>=kernel_start && tb->pc<=kernel_end)
-									strcpy(modulename,"kernel");
-								else if(tb->pc>=busybox_start && tb->pc<=busybox_end)
-									strcpy(modulename,"busybox");
-								else if(tb->pc>kernel_end){
-									target_ulong next_node,current_module_addr = modules_addr - 4;
-									uint32_t core_size;
-									cpu_memory_rw_debug(cpu,current_module_addr+4,(uint8_t *)&next_node,sizeof(next_node),0);
-									current_module_addr=next_node-4;
-									while(current_module_addr != modules_addr-4){
-										cpu_memory_rw_debug(cpu,current_module_addr+92+26*sizeof(target_ulong),(uint8_t *)&module_core,sizeof(module_core),0);
-										cpu_memory_rw_debug(cpu,current_module_addr+96+27*sizeof(target_ulong),(uint8_t *)&core_size,sizeof(core_size),0);
-										if(tb->pc>=module_core && tb->pc<module_core+core_size){
-											cpu_memory_rw_debug(cpu,current_module_addr+4+2*sizeof(target_ulong),(uint8_t *)&modulename,sizeof(modulename),0);
-											break;
-										}
-										cpu_memory_rw_debug(cpu,current_module_addr+4,(uint8_t *)&next_node,sizeof(next_node),0);
-										current_module_addr=next_node-4;
-									}
-								}else
-									strcpy(modulename,"");
-								//int i;
-								/*for(i=0;i<4;i++)
-									cpu_memory_rw_debug(cpu,esp+(1+i)*4,(uint8_t *)&args[i],sizeof(uint32_t),0);*/
-									args[0]=env->regs[R_EAX];
-									args[1]=env->regs[R_EDX];
-									args[2]=env->regs[R_ECX];
-									cpu_memory_rw_debug(cpu,esp+(1+3)*4,(uint8_t *)&args[3],sizeof(uint32_t),0);
-								//qemu_log("0x%"PRIx64",0x%"PRIx32",%"PRIx32",%s,%"PRIx32"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,env->regs[R_ESP],modulename,tb->pc-module_core);
-								qemu_log("0x%"PRIx64",0x%"PRIx32",%"PRIx32",%s,%"PRIx32",%"PRIx32",%"PRIx32",%"PRIx32",%"PRIx32"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,env->regs[R_ESP],modulename,tb->pc-module_core,args[0],args[1],args[2],args[3]);
-								char bufmy[60];
-								char bufmy1[60];
-								char bufmy2[60];
-								cpu_memory_rw_debug(cpu,args[0],(uint8_t *)&bufmy,sizeof(bufmy),0);
-								cpu_memory_rw_debug(cpu,args[1],(uint8_t *)&bufmy1,sizeof(bufmy1),0);
-								cpu_memory_rw_debug(cpu,args[2],(uint8_t *)&bufmy2,sizeof(bufmy2),0);
-								qemu_log("%s %s %s\n",bufmy,bufmy1,bufmy2);
-							}
-							//qemu_log("%s\n",bufmy);
-						}else if(lasttbtype==TB_RET && false)
-							qemu_log("0x%"PRIx64",0x%"PRIx32","TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,env->regs[R_ESP]-4,env->regs[R_EAX]);
-						isoutput=false;
-					}
-					if(tb->type!=TB_DEFAULT){
-						lasttbtype=tb->type;
-						isoutput=true;
-					}
-#endif
-#elif defined(TARGET_ARM)
-					if(isoutput){
-						target_ulong esp=env->regs[13];
-						if(lasttbtype==TB_CALL || lasttbtype==TB_UNCCALL)
-							qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx",0x"TARGET_FMT_lx",0x"TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cp15.ttbr0_el1,esp&0xffffe000,esp,tb->pc);
-						else if(lasttbtype==TB_RET)
-							qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx",0x"TARGET_FMT_lx",0x"TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cp15.ttbr0_el1,esp&0xffffe000,esp);
-						isoutput=false;
-					}
-					if(tb->type!=TB_DEFAULT){
-						lasttbtype=tb->type;
-						isoutput=true;
-					}
-#endif
-				}
-                
                 /* see if we can patch the calling TB. When the TB
                    spans two pages, we cannot safely do a direct
                    jump. */
@@ -783,9 +589,191 @@ int cpu_exec(CPUArchState *env)
                 cpu->current_tb = tb;
                 barrier();
                 if (likely(!cpu->exit_request)) {
+                    trace_exec_tb(tb, tb->pc);
                     tc_ptr = tb->tc_ptr;
                     /* execute the generated code */
                     next_tb = cpu_tb_exec(cpu, tc_ptr);
+                    
+                    if(qemu_loglevel_mask(CPU_LOG_FUNC) && (next_tb & TB_EXIT_MASK)<2){
+                        if(tb->type==TB_CALL || tb->type==TB_RET){
+                            target_ulong esp=env->regs[R_ESP],tid=esp&0xffffffffffffc000,current,pid;
+                            char processname[16];
+                            cpu_memory_rw_debug(cpu,tid,(uint8_t *)&current,sizeof(current),0);
+                            cpu_memory_rw_debug(cpu,current+0x438,(uint8_t *)&pid,sizeof(pid),0);
+                            cpu_memory_rw_debug(cpu,current+0x5e0,(uint8_t *)&processname,sizeof(processname),0);
+                            tid=pid;
+                            //if(strstr(processname,target)){
+                            if(strcmp(processname,target)==0){
+                				if(tb->type==TB_CALL){
+                				    if(esp<0xf000000000000000 || funcistraced(env->eip)!=-1){
+                                        ////////////////////////////////////////////////////////////
+                                        //added by aquan
+                                        ld.type = 'C';
+                                        ld.processName = processname; 
+                                        ld.curAddr = tb->pc+tb->size-2;
+                                        ld.goAddr = env->eip;
+                                        ld.pid = env->cr[3];
+                                        ld.tid = tid;
+                                        ld.esp = esp;
+                                        if(ld.pid==curThread->pid && ld.tid == curThread->tid){
+                                            pushStack(curThread->stack,&ld);
+                                        }
+                                        else{
+                                            //search threadList
+                                            if(GetCurThread(&L,ld.pid,ld.tid,curThread)==0){
+                                                //find this thread
+                                                pushStack(curThread->stack,&ld);
+                                            }
+                                            else{
+                                                //can't find this thread, need add a item to List
+                                                s = malloc(sizeof(Stack));                  
+                                                tl = malloc(sizeof(threadList));
+                                                initStack(s,sizeof(logData));
+                                                pushStack(s,&ld);
+                                                tl->stack = s;
+                                                tl->pid = ld.pid;
+                                                tl->tid = ld.tid;
+                                    
+                                                appendList(&L,tl);
+                                                curThread = tl;
+                                            }
+                                        }
+                                        //added by aquan
+                                        ////////////////////////////////////////////////////////////
+                                        /*
+                                        if(!output){
+                                            target_ulong plinkmap;
+                                            struct link_map lnk_tmp;
+                                            cpu_memory_rw_debug(cpu,0x0000000000780000+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
+                                            cpu_memory_rw_debug(cpu,plinkmap,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
+                                            cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
+                                            cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                        
+                                            char soname[50];
+                                            qemu_log("linkmap begin\n");
+                                            int i=0;
+                                            for (; i < 10; i++)
+                                            {                          
+                                                cpu_memory_rw_debug(cpu,lnk_tmp.l_name,(uint8_t *)&soname,sizeof(soname),0);
+                                                qemu_log("%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
+                                                cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                        
+                                            }
+                                            qemu_log("linkmap end\n");
+                                            output=true;
+                                        }
+                                        */
+
+                                        qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
+                                    }
+                				}else if(tb->type==TB_RET){
+                				    if(esp<0xf000000000000000){
+                                        /////////////////////////////////////////////////////////////////
+                                        //added by aquan
+                                        ld.type = 'R';
+                                        ld.processName = processname; 
+                                        ld.curAddr = tb->pc+tb->size-1;
+                                        ld.goAddr = env->eip;
+                                        ld.pid = env->cr[3];
+                                        ld.tid = tid;
+                                        ld.esp = esp-sizeof(target_ulong);
+                                        //qemu_log(TARGET_FMT_lx","TARGET_FMT_lx",currentpid&tid\n",curThread->pid,curThread->tid);
+
+                                        //if(ld.pid==curThread->pid && ld.tid == curThread->tid){
+                                        if(ld.tid == curThread->tid){
+                                            //pop stack
+                                            GetTopStack(curThread->stack,&ldPop);
+                                            //popStack(curThread->stack,&ldPop);
+                                            //qemu_log(TARGET_FMT_lx","TARGET_FMT_lx",ldpop1\n",curThread->pid,curThread->tid);
+                                            if(ldPop.esp != ld.esp){
+                                                //exception: esp is not matched
+                                                qemu_log("exception1!\n");
+                                                qemu_log("##########################################################\n");
+                                                while(!isStackEmpty(curThread->stack)){
+                                                    popStack(curThread->stack,&ld);
+                				    	            qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                                }
+                                                qemu_log("##########################################################\n");
+                				    	        qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                                                qemu_log("**********************************************************\n");
+                                                traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                                qemu_log("**********************************************************\n");
+                                                exit(0);
+                                                
+                                            }
+                                            else{
+                                                popStack(curThread->stack,&ldPop);
+                                            }
+                                            
+                                        }
+                                        else{
+                                            if(GetCurThread(&L,ld.pid,ld.tid,curThread)==0){
+                                            //find this thread
+                                                GetTopStack(curThread->stack,&ldPop);
+                                                //popStack(curThread->stack,&ldPop);
+                                                //qemu_log(TARGET_FMT_lx","TARGET_FMT_lx",ldpop2\n",curThread->pid,curThread->tid);
+                                                if(ldPop.esp != ld.esp){
+                                                    //exception: esp is not matched
+                                                    qemu_log("exception2!\n");
+                                                    qemu_log("##########################################################\n");
+                                                    while(!isStackEmpty(curThread->stack)){
+                                                        popStack(curThread->stack,&ld);
+                				    	                qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                                    }
+                                                    qemu_log("##########################################################\n");
+                				    	            qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                                                    qemu_log("**********************************************************\n");
+                                                    traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                                    qemu_log("**********************************************************\n");
+                                                    exit(0);
+                                                }
+                                                else{
+                                                    popStack(curThread->stack,&ldPop);
+                                                }
+                                            }
+                                            else{
+                                                //ERRER: can't find a thread which contains this return
+                                                qemu_log("error!\n");
+                				    	        qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                                                traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                                exit(0);
+                                            }
+                                        }
+
+                                        //added by aquan
+                                        /////////////////////////////////////////////////////////////////
+
+                				    	qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                                    }
+                			    }
+                            }
+                                //qemu_log("%"PRIx64","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,tb->pc+tb->size-2,env->eip);
+                        }
+                            /*target_ulong pid=env->cr[3],esp=env->regs[R_ESP];
+                            char modulename[64-sizeof(unsigned long)]="";
+                            if(tb->pc>=kernel_start && tb->pc<=kernel_end){
+                                strcpy(modulename,"kernel");
+                            }                             
+                            qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx","TARGET_FMT_lx",%s,"TARGET_FMT_lx","TARGET_FMT_lx,qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,esp,modulename,env->eip,tb->pc+tb->size-2);
+                            if(funcistraced(env->eip)!=-1){
+                                int i;
+                                for(i=0;funcargv[id][i]!='\0';i++){
+                                    switch(funcargv[id][i]){
+                                        case 'v':break;
+                                        case 'i':qemu_log(","TARGET_FMT_ld,env->regs[argorder[i]]);break;
+                                        case 's':
+                                            char tmp[100];
+                                            cpu_memory_rw_debug(cpu,env->regs[argorder[i]],(uint8_t *)&tmp,sizeof(tmp),0);
+                                            qemu_log(",%s",tmp);
+                                            break;
+                                        case 'o':qemu_log(","TARGET_FMT_lx,env->regs[argorder[i]]);break;
+                                    }
+                                }
+                            }
+                            qemu_log("\n");
+                        }else if(tb->type==TB_RET){
+                            qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cr[3],env->regs[R_ESP]-sizeof(target_ulong));
+                        }*/
+                    }                    
+
                     switch (next_tb & TB_EXIT_MASK) {
                     case TB_EXIT_REQUESTED:
                         /* Something asked us to stop executing
@@ -795,29 +783,24 @@ int cpu_exec(CPUArchState *env)
                          * interrupt_request) which we will handle
                          * next time around the loop.
                          */
-                        tb = (TranslationBlock *)(next_tb & ~TB_EXIT_MASK);
                         next_tb = 0;
                         break;
                     case TB_EXIT_ICOUNT_EXPIRED:
                     {
                         /* Instruction counter expired.  */
-                        int insns_left;
-                        tb = (TranslationBlock *)(next_tb & ~TB_EXIT_MASK);
-                        insns_left = cpu->icount_decr.u32;
+                        int insns_left = cpu->icount_decr.u32;
                         if (cpu->icount_extra && insns_left >= 0) {
                             /* Refill decrementer and continue execution.  */
                             cpu->icount_extra += insns_left;
-                            if (cpu->icount_extra > 0xffff) {
-                                insns_left = 0xffff;
-                            } else {
-                                insns_left = cpu->icount_extra;
-                            }
+                            insns_left = MIN(0xffff, cpu->icount_extra);
                             cpu->icount_extra -= insns_left;
                             cpu->icount_decr.u16.low = insns_left;
                         } else {
                             if (insns_left > 0) {
                                 /* Execute remaining instructions.  */
-                                cpu_exec_nocache(env, insns_left, tb);
+                                tb = (TranslationBlock *)(next_tb & ~TB_EXIT_MASK);
+                                cpu_exec_nocache(cpu, insns_left, tb);
+                                align_clocks(&sc, cpu);
                             }
                             cpu->exception_index = EXCP_INTERRUPT;
                             next_tb = 0;
@@ -830,6 +813,9 @@ int cpu_exec(CPUArchState *env)
                     }
                 }
                 cpu->current_tb = NULL;
+                /* Try to align the host and virtual clocks
+                   if the guest is in advance */
+                align_clocks(&sc, cpu);
                 /* reset soft MMU for next block (it can currently
                    only be set by a memory fault) */
             } /* for(;;) */
@@ -837,13 +823,11 @@ int cpu_exec(CPUArchState *env)
             /* Reload env after longjmp - the compiler may have smashed all
              * local variables as longjmp is marked 'noreturn'. */
             cpu = current_cpu;
-            env = cpu->env_ptr;
-#if !(defined(CONFIG_USER_ONLY) && \
-      (defined(TARGET_M68K) || defined(TARGET_PPC) || defined(TARGET_S390X)))
             cc = CPU_GET_CLASS(cpu);
-#endif
+            cpu->can_do_io = 1;
 #ifdef TARGET_I386
             x86_cpu = X86_CPU(cpu);
+            env = &x86_cpu->env;
 #endif
             if (have_tb_lock) {
                 spin_unlock(&tcg_ctx.tb_ctx.tb_lock);
@@ -852,35 +836,8 @@ int cpu_exec(CPUArchState *env)
         }
     } /* for(;;) */
 
-
-#if defined(TARGET_I386)
-    /* restore flags in standard format */
-    env->eflags = env->eflags | cpu_cc_compute_all(env, CC_OP)
-        | (env->df & DF_MASK);
-#elif defined(TARGET_ARM)
-    /* XXX: Save/restore host fpu exception state?.  */
-#elif defined(TARGET_UNICORE32)
-#elif defined(TARGET_SPARC)
-#elif defined(TARGET_PPC)
-#elif defined(TARGET_LM32)
-#elif defined(TARGET_M68K)
-    cpu_m68k_flush_flags(env, env->cc_op);
-    env->cc_op = CC_OP_FLAGS;
-    env->sr = (env->sr & 0xffe0)
-              | env->cc_dest | (env->cc_x << 4);
-#elif defined(TARGET_MICROBLAZE)
-#elif defined(TARGET_MIPS)
-#elif defined(TARGET_MOXIE)
-#elif defined(TARGET_OPENRISC)
-#elif defined(TARGET_SH4)
-#elif defined(TARGET_ALPHA)
-#elif defined(TARGET_CRIS)
-#elif defined(TARGET_S390X)
-#elif defined(TARGET_XTENSA)
-    /* XXXXX */
-#else
-#error unsupported target CPU
-#endif
+    cc->cpu_exec_exit(cpu);
+    rcu_read_unlock();
 
     /* fail safe : never use current_cpu outside cpu_exec() */
     current_cpu = NULL;
