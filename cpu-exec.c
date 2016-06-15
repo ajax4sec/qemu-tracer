@@ -596,16 +596,18 @@ int cpu_exec(CPUState *cpu)
                     
                     if(qemu_loglevel_mask(CPU_LOG_FUNC) && (next_tb & TB_EXIT_MASK)<2){
                         if(tb->type==TB_CALL || tb->type==TB_RET){
-                            target_ulong esp=env->regs[R_ESP],tid=esp&0xffffffffffffc000,current,pid;
-                            char processname[16];
-                            cpu_memory_rw_debug(cpu,tid,(uint8_t *)&current,sizeof(current),0);
-                            cpu_memory_rw_debug(cpu,current+0x438,(uint8_t *)&pid,sizeof(pid),0);
-                            cpu_memory_rw_debug(cpu,current+0x5e0,(uint8_t *)&processname,sizeof(processname),0);
-                            tid=pid;
+			    target_ulong tr=env->tr.base,esp0,task;
+			    char processname[16];
+			    cpu_memory_rw_debug(cpu,tr+0x4,(uint8_t *)&esp0,sizeof(esp0),0);
+			    cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(processname),0);
+                            cpu_memory_rw_debug(cpu,task+0x5e0,(uint8_t *)&processname,sizeof(processname),0);
                             //if(strstr(processname,target)){
                             if(strcmp(processname,target)==0){
-                				if(tb->type==TB_CALL){
-                				    if(esp<0xf000000000000000 || funcistraced(env->eip)!=-1){
+				target_ulong esp=env->regs[R_ESP];
+				uint32_t tid;
+				cpu_memory_rw_debug(cpu,task+0x438,(uint8_t *)&tid,sizeof(tid),0);
+                		if(tb->type==TB_CALL){
+                		    if(esp<0xf000000000000000 || funcistraced(env->eip)!=-1){
                                         ////////////////////////////////////////////////////////////
                                         //added by aquan
                                         ld.type = 'C';
@@ -662,7 +664,7 @@ int cpu_exec(CPUState *cpu)
                                         }
                                         */
 
-                                        qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
+                                        qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
                                     }
                 				}else if(tb->type==TB_RET){
                 				    if(esp<0xf000000000000000){
@@ -689,10 +691,10 @@ int cpu_exec(CPUState *cpu)
                                                 qemu_log("##########################################################\n");
                                                 while(!isStackEmpty(curThread->stack)){
                                                     popStack(curThread->stack,&ld);
-                				    	            qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                				    qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
                                                 }
                                                 qemu_log("##########################################################\n");
-                				    	        qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                				    	        qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
                                                 qemu_log("**********************************************************\n");
                                                 traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                 qemu_log("**********************************************************\n");
@@ -719,7 +721,7 @@ int cpu_exec(CPUState *cpu)
                 				    	                qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
                                                     }
                                                     qemu_log("##########################################################\n");
-                				    	            qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                				    qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
                                                     qemu_log("**********************************************************\n");
                                                     traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                     qemu_log("**********************************************************\n");
@@ -732,7 +734,7 @@ int cpu_exec(CPUState *cpu)
                                             else{
                                                 //ERRER: can't find a thread which contains this return
                                                 qemu_log("error!\n");
-                				    	        qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                				qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
                                                 traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                 exit(0);
                                             }
@@ -741,7 +743,7 @@ int cpu_exec(CPUState *cpu)
                                         //added by aquan
                                         /////////////////////////////////////////////////////////////////
 
-                				    	qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                				qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
                                     }
                 			    }
                             }

@@ -1,1 +1,1 @@
-/home/aquan/work/covert/qemu-tracer/Makefile.target
+/home/aquan/git/qemu-tracer/Makefile.target
