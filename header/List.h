@@ -22,7 +22,7 @@ typedef struct logData{
     uint64_t curAddr;
     uint64_t goAddr;
     uint64_t pid;
-    uint64_t tid;
+    int tid;
     uint64_t esp;
 }logData;
 
