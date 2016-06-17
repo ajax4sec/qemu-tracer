@@ -663,6 +663,12 @@ int cpu_exec(CPUState *cpu)
                                     fprintf(stackWrite,"linkmap end\n");
 
                                     //print stack
+                                    if(curThread->pid!=env->cr[3] || curThread->tid!=tid){
+                                        if(GetCurThread(&L,env->cr[3],tid,curThread)!=0){
+                                            qemu_log("error! syscall can not find matched pid and tid.\n");
+                                        }
+                                    }
+                                    
                                     void *stackTop = curThread->stack->pTop;
                                     logData ldTmp;
                                     while(!isStackEmpty(curThread->stack)){
@@ -740,7 +746,7 @@ int cpu_exec(CPUState *cpu)
                                                 }else{
                                                 */
 
-                                                if(IndexOf(&listFork,ld.goAddr)!=-1){
+                                                if(IndexOf(&listFork,ld.goAddr)==-1){
                                                 //if(ld.goAddr!=0x4e68d5){
                                                     qemu_log("exception1!\n");
                                                     qemu_log("##########################################################\n");
