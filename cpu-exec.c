@@ -645,21 +645,14 @@ int cpu_exec(CPUState *cpu)
                                     struct link_map lnk_tmp;
                                     cpu_memory_rw_debug(cpu,0x0000000000780000+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
                                     cpu_memory_rw_debug(cpu,plinkmap,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
-                                    cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
-                                    cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                        
+                                    cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                      
                                     char soname[50];
-
                                     fprintf(stackWrite,"linkmap begin\n");
-                                    //qemu_log("linkmap begin\n");
-                                    int i=0;
-                                    for (; i < 10; i++)
-                                    {                          
+                                    while(lnk_tmp.l_next!=0){                  
+                                        cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
                                         cpu_memory_rw_debug(cpu,lnk_tmp.l_name,(uint8_t *)&soname,sizeof(soname),0);
-                                        //qemu_log("%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
                                         fprintf(stackWrite,"%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
-                                        cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                        
-                                    }
-                                    //qemu_log("linkmap end\n");
+                                    }           
                                     fprintf(stackWrite,"linkmap end\n");
 
                                     //print stack
@@ -746,8 +739,57 @@ int cpu_exec(CPUState *cpu)
                                                 }else{
                                                 */
 
+                                               
+
                                                 if(IndexOf(&listFork,ld.goAddr)==-1){
                                                 //if(ld.goAddr!=0x4e68d5){
+                                                  /* 
+
+                                                    // print link map
+                                                    target_ulong plinkmap;
+                                                    struct link_map lnk_tmp;
+                                                    cpu_memory_rw_debug(cpu,0x00000000011e3000+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
+                                                    cpu_memory_rw_debug(cpu,plinkmap,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
+                                                    cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                      
+                                                    char soname[50];
+                                                    fprintf(stackWrite,"linkmap begin\n");
+                                                    while(lnk_tmp.l_next!=0){                  
+                                                        cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
+                                                        cpu_memory_rw_debug(cpu,lnk_tmp.l_name,(uint8_t *)&soname,sizeof(soname),0);
+                                                        fprintf(stackWrite,"%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
+                                                    }           
+                                                    fprintf(stackWrite,"linkmap end\n");
+                                                    */
+                                                    
+                                                    if(isStackEmpty(curThread->stack)){
+                                                        qemu_log("fork return\n");
+
+                                                    }
+                                                    else{
+                                                        while(!isStackEmpty(curThread->stack)){
+                                                            GetTopStack(curThread->stack,&ld);
+                                                            if(ld.esp==esp){
+                                                                break;
+                                                            }
+                                                            else{
+                                                                popStack(curThread->stack,&ld);
+                                                            }
+                                                        }
+                                                        
+                                                        if(isStackEmpty(curThread->stack)){
+                                                            qemu_log("algorithm error\n");
+                                                            qemu_log("##########################################################\n");
+                				    	                    qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                                                            qemu_log("**********************************************************\n");
+                                                            traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                                            qemu_log("**********************************************************\n");
+                                                            exit(0);
+                                                        }
+                                                    }
+
+
+
+                                                    /*
                                                     qemu_log("exception1!\n");
                                                     qemu_log("##########################################################\n");
                                                     while(!isStackEmpty(curThread->stack)){
@@ -760,7 +802,11 @@ int cpu_exec(CPUState *cpu)
                                                     traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                     qemu_log("**********************************************************\n");
                                                     exit(0);
+                                                    */
                                                 }
+                                                
+                                                
+                                                popStack(curThread->stack,&ldPop);
                                                 
                                             }
                                             else{
