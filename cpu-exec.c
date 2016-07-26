@@ -641,9 +641,10 @@ int cpu_exec(CPUState *cpu)
                                     qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
 
                                     // print link map
+                                    /*
                                     target_ulong plinkmap;
                                     struct link_map lnk_tmp;
-                                    cpu_memory_rw_debug(cpu,0x0000000000780000+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
+                                    cpu_memory_rw_debug(cpu,0x00000000011e3000+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
                                     cpu_memory_rw_debug(cpu,plinkmap,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
                                     cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);                      
                                     char soname[50];
@@ -654,6 +655,8 @@ int cpu_exec(CPUState *cpu)
                                         fprintf(stackWrite,"%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
                                     }           
                                     fprintf(stackWrite,"linkmap end\n");
+
+                                    */
 
                                     //print stack
                                     if(curThread->pid!=env->cr[3] || curThread->tid!=tid){
@@ -766,15 +769,19 @@ int cpu_exec(CPUState *cpu)
 
                                                     }
                                                     else{
+
+                                                        qemu_log("pop stack while esp not matched,start\n");
                                                         while(!isStackEmpty(curThread->stack)){
-                                                            GetTopStack(curThread->stack,&ld);
-                                                            if(ld.esp==esp){
+                                                            GetTopStack(curThread->stack,&ldPop);
+                                                            if(ld.esp==ldPop.esp || ld.goAddr-2 == ldPop.curAddr){
                                                                 break;
                                                             }
                                                             else{
-                                                                popStack(curThread->stack,&ld);
+                                                                popStack(curThread->stack,&ldPop);
+	                                                            qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldPop.processName,ldPop.curAddr,ldPop.goAddr,ldPop.pid,ldPop.tid,ldPop.esp);
                                                             }
                                                         }
+                                                        qemu_log("pop stack while esp not matched,end\n");
                                                         
                                                         if(isStackEmpty(curThread->stack)){
                                                             qemu_log("algorithm error\n");
