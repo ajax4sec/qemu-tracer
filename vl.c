@@ -132,6 +132,7 @@ typedef uint64_t target_ulong;
 target_ulong kernel_start,kernel_end,funcaddr[FUNC_MAX];
 int funccount=0;
 char funcargv[FUNC_MAX][PRAM_MAX],target[16];
+target_ulong got;
 
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
@@ -4106,7 +4107,7 @@ int main(int argc, char **argv, char **envp)
         
         if (qemu_loglevel_mask(CPU_LOG_FUNC)) {    
             FILE *fp = fopen("configs.txt", "r");
-            if(fscanf(fp,TARGET_lx TARGET_lx" %s",&kernel_start,&kernel_end,target)){
+            if(fscanf(fp,TARGET_lx TARGET_lx" %s" TARGET_lx,&kernel_start,&kernel_end,target,&got)){
                 while(fscanf(fp,TARGET_lx" %s",&funcaddr[funccount],funcargv[funccount])!=-1)
                     funccount++;
             }
