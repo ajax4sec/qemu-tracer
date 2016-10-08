@@ -230,7 +230,8 @@ struct TranslationBlock {
 #define TB_DEFAULT 0
 #define TB_CALL	   1
 #define TB_RET	   2
-#define TB_UNCCALL 3
+#define TB_UNCCALL 3 
+#define TB_RET_IM  4
 
 #include "exec/spinlock.h"
 
