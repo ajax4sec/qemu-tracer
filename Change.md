@@ -2,7 +2,11 @@
 ###目前修改的地方
 * configs.txt中加入了的第4行是程序的got（GLOBAL_OFFSET_TABLE）表地址，目的是为了方便程序出错时打印动态链接库的加载地址。
 * 在vl.c中加入了got变量，用于存储got表的地址，用于32位系统的got使用的是uint_32 got；而64位系统使用的是target_ulong got；
+<<<<<<< HEAD
 * 在cpu-exec.c中加入了，printLinkMap（FILE * fp, CPUState cpu,target_ulong got）函数（64位）；
+=======
+* 在cpu-exec.c中加入了，printLinkMap（FILE * fp, CPUState cpu,target_ulong got）函数（64位），同时64位系统中的结构体link_map中的数据类型均为target_ulong，而在32位系统中采用的uint_32，所以输出的时候采用的占位符也会有相应的调整，fprintf()的占位符可能不一样；
+>>>>>>> fdefda017dd44b145bf8e3dc65270d432ea9e6dd
 * 对于64位系统，tr指向的TSS中的esp0会有一个0x4000的偏移（先减后压栈导致），需要减去0x4000，代码如下：
 ```
 cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(processname),0);
