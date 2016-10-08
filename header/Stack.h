@@ -12,8 +12,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#define STACK_DEFAULT_SIZE 100
+#define STACK_DEFAULT_SIZE 200
 #define STACK_INCREMENT_SIZE 50
+//栈动态增长存在问题，当初次分配的栈空间用完后，动态增加有错
 
 #define STACK_OK 0
 #define STACK_ERROR -1
