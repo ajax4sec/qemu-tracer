@@ -30,15 +30,10 @@
 #include "exec/tb-hash.h"
 
 
- ////////////////////////////////////////////////////
-//added by aquan
 #include "header/Stack.h"
-//#include "header/Stack.c"
 #include "header/List.h"
-//#include "header/List.c"
-//added by aquan
-////////////////////////////////////////////////////
-
+#define osBit32 1 
+#define commOffset 0x2cc
 
 /* -icount align implementation. */
 
@@ -408,11 +403,18 @@ static struct mySocket printSocket(FILE * fp, CPUState *cpu,target_ulong rsi){
 }
 /////////
 
-struct link_map{
+struct link_map{ 
+#if osBit32
+    uint32_t l_addr;
+    uint32_t l_name;
+    uint32_t l_ld;
+    uint32_t l_next;
+#else
     target_ulong l_addr;
     target_ulong l_name;
     target_ulong l_ld;
     target_ulong l_next;
+#endif
 };
 
 struct pt_dynamic{
@@ -423,7 +425,11 @@ struct pt_dynamic{
 //get start address of link map using .got.plt section address
 static target_ulong getLinkMapStartAddrByGot(CPUState *cpu, target_ulong got){
     target_ulong plinkmap;
+#if osBit32
+    cpu_memory_rw_debug(cpu,got+sizeof(uint32_t),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
+#else
     cpu_memory_rw_debug(cpu,got+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
+#endif
     return plinkmap;
 }
 
@@ -435,9 +441,14 @@ static target_ulong getLinkMapStartAddrByDynamic(FILE * fp,CPUState *cpu, target
     struct pt_dynamic ptd;
     int i;
     for( i=0;i<85;i++){
+#if osBit32
+        cpu_memory_rw_debug(cpu,startAddr+i*2*sizeof(uint32_t),(uint8_t *)&ptd,sizeof(ptd),0);
+        fprintf(fp,TARGET_FMT_lx" "TARGET_FMT_lx" "TARGET_FMT_lx"\n",startAddr+i*2*sizeof(uint32_t),ptd.d_tag,ptd.d_un);
+#else 
         cpu_memory_rw_debug(cpu,startAddr+i*2*sizeof(target_ulong),(uint8_t *)&ptd,sizeof(ptd),0);
-       //target_ulong d_tag = *((target_ulong *)(startAddr+i*0x10));
         fprintf(fp,TARGET_FMT_lx" "TARGET_FMT_lx" "TARGET_FMT_lx"\n",startAddr+i*2*sizeof(target_ulong),ptd.d_tag,ptd.d_un);
+#endif
+
         if(ptd.d_tag == 0x15){
             struct pt_dynamic re ;
             cpu_memory_rw_debug(cpu,ptd.d_un,(uint8_t *)&re,sizeof(re),0);
@@ -450,17 +461,21 @@ static target_ulong getLinkMapStartAddrByDynamic(FILE * fp,CPUState *cpu, target
 // tarverse the link map and print the load address and names of SO 
 static void traverseLinkMap(FILE *fp ,CPUState *cpu,target_ulong plinkmap){
     struct link_map lnk_tmp;
-    my_qemu_log("plinkmap is "TARGET_FMT_lx"\n",plinkmap);
+    //my_qemu_log("plinkmap is "TARGET_FMT_lx"\n",plinkmap);
     cpu_memory_rw_debug(cpu,plinkmap,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
     cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
-    my_qemu_log("lnext is "TARGET_FMT_lx"\n",lnk_tmp.l_next);
+    //my_qemu_log("lnext is "TARGET_FMT_lx"\n",lnk_tmp.l_next);
     char soname[50];
     fprintf(fp,"linkmap begin\n");
     //int i=0;
     while(lnk_tmp.l_next!=0){                  
         cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
         cpu_memory_rw_debug(cpu,lnk_tmp.l_name,(uint8_t *)&soname,sizeof(soname),0);
+#if osBit32
+        fprintf(fp,"%s %I32u\n",soname,lnk_tmp.l_addr);
+#else
         fprintf(fp,"%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
+#endif
         //if(i>=10) break;
         //i++; 
     }           
@@ -469,8 +484,13 @@ static void traverseLinkMap(FILE *fp ,CPUState *cpu,target_ulong plinkmap){
 
 static void printLinkMap(FILE * fp,CPUState *cpu,target_ulong got){
     //target_ulong plinkmap = getLinkMapStartAddrByGot(cpu,got);
+#if osBit32
+    uint32_t plinkmap;
+    if(got>0x80000000){
+#else
     target_ulong plinkmap ;
     if(got>0x0000555555554000){
+#endif
         plinkmap = getLinkMapStartAddrByDynamic(fp,cpu,got);
         if(plinkmap ==0 ){
             printf("can not find link map by .dynamic\n");
@@ -482,29 +502,6 @@ static void printLinkMap(FILE * fp,CPUState *cpu,target_ulong got){
     }
     traverseLinkMap(fp,cpu,plinkmap);
 }
-
-/*
-static void printLinkMap(FILE * fp,CPUState *cpu,target_ulong got){
-    target_ulong plinkmap;
-    struct link_map lnk_tmp;
-    cpu_memory_rw_debug(cpu,got+sizeof(target_ulong),(uint8_t *)&plinkmap,sizeof(plinkmap),0);
-    qemu_log("plinkmap is "TARGET_FMT_lx"\n",plinkmap);
-    cpu_memory_rw_debug(cpu,plinkmap,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
-    cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
-    qemu_log("lnext is "TARGET_FMT_lx"\n",lnk_tmp.l_next);
-    char soname[50];
-    fprintf(fp,"linkmap begin\n");
-    int i=0;
-    while(lnk_tmp.l_next!=0){                  
-        cpu_memory_rw_debug(cpu,lnk_tmp.l_next,(uint8_t *)&lnk_tmp,sizeof(lnk_tmp),0);
-        cpu_memory_rw_debug(cpu,lnk_tmp.l_name,(uint8_t *)&soname,sizeof(soname),0);
-        fprintf(fp,"%s "TARGET_FMT_lx"\n",soname,lnk_tmp.l_addr);
-        if(i>=10) break;
-        i++; 
-    }           
-    fprintf(fp,"linkmap end\n");
-}
-*/
 
 
 extern target_ulong kernel_start,kernel_end,funcaddr[];
@@ -549,24 +546,6 @@ FILE *fpForkRet;
 ////////////////////////////////////////////////////
 int cpu_exec(CPUState *cpu)
 {
-
-////////////////////////////////////////////////////
-//added by aquan
-    /*
-    if(countCpuExec==0){
-        initList(&L,sizeof(threadList));
-        curThread = malloc(sizeof(threadList));
-        countCpuExec=1;
-        stackWrite = fopen("stack","w");
-        if(NULL == stackWrite){
-            exit(0);
-        }
-    }
-    */
-//added by aquan
-////////////////////////////////////////////////////
-
-
 
     CPUClass *cc = CPU_GET_CLASS(cpu);
 #ifdef TARGET_I386
@@ -740,11 +719,15 @@ int cpu_exec(CPUState *cpu)
 			            target_ulong tr=env->tr.base,esp0,task;
 			            char processname[16];
 			            cpu_memory_rw_debug(cpu,tr+0x4,(uint8_t *)&esp0,sizeof(esp0),0);
-			            cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(processname),0);
-                        cpu_memory_rw_debug(cpu,task+0x5e0,(uint8_t *)&processname,sizeof(processname),0);
+#if osBit32
+			            cpu_memory_rw_debug(cpu,esp0&0xffffe000,(uint8_t *)&task,sizeof(task),0);
+#else
+			            //cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(processname),0);
+			            cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(task),0);
+#endif
+                        cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
                         //if(strstr(processname,target)){
                         if(strcmp(processname,target)==0){
-                            //printf("##########   %s\n",processname);
                             //initialize list and open a file to log stack
                             if(countCpuExec==0){
                                 initList(&L,sizeof(threadList));
@@ -781,7 +764,12 @@ int cpu_exec(CPUState *cpu)
                                             my_qemu_log("error! syscall can not find matched pid and tid.\n");
                                         }
                                     }
+#if osBit32
+                                    printSocket(stackWrite,cpu,env->regs[R_EDX]);
+#else 
                                     printSocket(stackWrite,cpu,env->regs[R_ESI]);
+#endif
+
                                     fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);                                  
                                     void *stackTop = curThread->stack->pTop;
                                     logData ldTmp;
@@ -794,7 +782,11 @@ int cpu_exec(CPUState *cpu)
                                    
                                     printLinkMap(stackWrite,cpu,got);
                                 }
+#if osBit32
+                		        if(esp<0xc0000000){
+#else
                 		        if(esp<0xf000000000000000){
+#endif
                                     ////////////////////////////////////////////////////////////
                                     //added by aquan
                                     //push stack
@@ -835,7 +827,12 @@ int cpu_exec(CPUState *cpu)
                 				        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
                                     }
                 				}else if(tb->type==TB_RET){
+#if osBit32
+                				    if(esp<0xc0000000){
+#else
                 				    if(esp<0xf000000000000000){
+#endif
+
                                         /////////////////////////////////////////////////////////////////
                                         //added by aquan
                                         //pop stack
