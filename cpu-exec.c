@@ -534,14 +534,13 @@ volatile sig_atomic_t exit_request;
 
 ////////////////////////////////////////////////////
 //added by aquan
-List L,listFork;
+List L;
 threadList* curThread;
 Stack* s;
 threadList* tl ;
 logData ld,ldPop;
 int countCpuExec=0;
 FILE *stackWrite;
-FILE *fpForkRet;
 //added by aquan
 ////////////////////////////////////////////////////
 int cpu_exec(CPUState *cpu)
@@ -737,19 +736,6 @@ int cpu_exec(CPUState *cpu)
                                 if(NULL == stackWrite){
                                     exit(0);
                                 }
-
-                                //read fork return address
-                                fpForkRet = fopen("forkRet","r");
-                                int *forkAddress;
-                                if(fpForkRet!=NULL){
-                                    forkAddress = malloc(sizeof(int));
-                                    initList(&listFork,sizeof(int));
-                                    while(fscanf(fpForkRet,"%x",forkAddress)!=-1){
-                                        appendList(&listFork,forkAddress);
-                                    }
-                                    fclose(fpForkRet);
-                                }
-
                             }
 
 				            target_ulong esp=env->regs[R_ESP];
@@ -853,63 +839,61 @@ int cpu_exec(CPUState *cpu)
                                             if(ldPop.esp != ld.esp){
                                                 //exception: esp is not matched
                                                
-                                                if(IndexOf(&listFork,ld.goAddr)==-1){
-                                                    if(isStackEmpty(curThread->stack)){
-                                                        my_qemu_log("fork return\n");
-                                                    }
-                                                    else{
-                                                        my_qemu_log("pop stack while esp not matched,start\n");
-                                                        while(!isStackEmpty(curThread->stack)){
-                                                            GetTopStack(curThread->stack,&ldPop);
-                                                            if(ld.esp==ldPop.esp || ld.goAddr-2 == ldPop.curAddr){
-                                                                break;
-                                                            }
-                                                            else{
+                                               if(isStackEmpty(curThread->stack)){
+                                                   my_qemu_log("fork return\n");
+                                               }
+                                               else{
+                                                   my_qemu_log("pop stack while esp not matched,start\n");
+                                                   while(!isStackEmpty(curThread->stack)){
+                                                       GetTopStack(curThread->stack,&ldPop);
+                                                       if(ld.esp==ldPop.esp || ld.goAddr-2 == ldPop.curAddr){
+                                                           break;
+                                                       }
+                                                       else{
 
-                                                                if(ld.esp<ldPop.esp){
-                                                                    my_qemu_log("abort this return @@\n");
-                                                                    noPopTag = 1;
-                                                                    break;
-                                                                }
+                                                           if(ld.esp<ldPop.esp){
+                                                               my_qemu_log("abort this return @@\n");
+                                                               noPopTag = 1;
+                                                               break;
+                                                           }
 
-                                                                popStack(curThread->stack,&ldPop);
-	                                                            my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldPop.processName,ldPop.curAddr,ldPop.goAddr,ldPop.pid,ldPop.tid,ldPop.esp);
-                                                            }
-                                                        }
-                                                        my_qemu_log("pop stack while esp not matched,end\n");
-                                                        
-                                                        if(isStackEmpty(curThread->stack)){
-                                                            my_qemu_log("algorithm error\n");
-                                                            my_qemu_log("##########################################################\n");
-                				                            my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
-                                                            my_qemu_log("**********************************************************\n");
-                                                            traverseList(&L,(TRAVERSEFUNC)printList,0);
-                                                            my_qemu_log("**********************************************************\n");
+                                                           popStack(curThread->stack,&ldPop);
+                                                           my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldPop.processName,ldPop.curAddr,ldPop.goAddr,ldPop.pid,ldPop.tid,ldPop.esp);
+                                                       }
+                                                   }
+                                                   my_qemu_log("pop stack while esp not matched,end\n");
+                                                   
+                                                   if(isStackEmpty(curThread->stack)){
+                                                       my_qemu_log("algorithm error\n");
+                                                       my_qemu_log("##########################################################\n");
+                                                       my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                                       my_qemu_log("**********************************************************\n");
+                                                       traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                                       my_qemu_log("**********************************************************\n");
 
-                                                            printLinkMap(stackWrite,cpu,got);
+                                                       printLinkMap(stackWrite,cpu,got);
 
-                                                            exit(0);
-                                                        }
-                                                    }
-
+                                                       exit(0);
+                                                   }
+                                               }
 
 
-                                                    /*
-                                                    qemu_log("exception1!\n");
-                                                    qemu_log("##########################################################\n");
-                                                    while(!isStackEmpty(curThread->stack)){
-                                                        popStack(curThread->stack,&ld);
-                				                        qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
-                                                    }
-                                                    qemu_log("##########################################################\n");
-                				    	            qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
-                                                    qemu_log("**********************************************************\n");
-                                                    traverseList(&L,(TRAVERSEFUNC)printList,0);
-                                                    qemu_log("**********************************************************\n");
-                                                    exit(0);
-                                                    */
-                                                }
-                                                
+
+                                               /*
+                                               qemu_log("exception1!\n");
+                                               qemu_log("##########################################################\n");
+                                               while(!isStackEmpty(curThread->stack)){
+                                                   popStack(curThread->stack,&ld);
+           				                        qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                               }
+                                               qemu_log("##########################################################\n");
+           				    	            qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong));
+                                               qemu_log("**********************************************************\n");
+                                               traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                               qemu_log("**********************************************************\n");
+                                               exit(0);
+                                               */
+                                                    
                                                 if(noPopTag==0)
                                                 popStack(curThread->stack,&ldPop);
                                                 
