@@ -364,6 +364,49 @@ static void cpu_handle_debug_exception(CPUState *cpu)
 
     cc->debug_excp_handler(cpu);
 }
+// get ip and port
+
+struct sockaddr{
+    unsigned short sa_family; /* 地址族, AF_xxx */
+    char sa_data[14]; /* 14字节的协议地址*/
+};
+struct mySocket{
+    unsigned short sa_family;
+    int port;
+    int ip[4];
+};
+
+static struct mySocket printSocket(FILE * fp, CPUState *cpu,target_ulong rsi){
+    struct mySocket ms={0,0,{0}};
+    struct sockaddr sa;
+    cpu_memory_rw_debug(cpu,rsi,(uint8_t *)&sa,sizeof(sa),0);
+    if(sa.sa_family!=2){
+        fprintf(fp,"sf_family= %d ,port= %d ,ip= %d.%d.%d.%d\n",sa.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
+        return ms;
+    }
+    else{
+        /*
+        for(int i=0;i<14;i++){
+            fprintf(fp,"%d ",sa.sa_data[i]);
+        }
+        fprintf(fp,"\n");
+        */
+        ms.sa_family=sa.sa_family;
+        int data0,data1;
+        if(sa.sa_data[0]<0) data0=0x100+sa.sa_data[0];
+        else data0 = sa.sa_data[0];
+        if(sa.sa_data[1]<0) data1=0x100+sa.sa_data[1];
+        else data1 = sa.sa_data[1];
+        ms.port = data0*0x100 + data1;
+        ms.ip[0] = (int)sa.sa_data[2];
+        ms.ip[1] = (int)sa.sa_data[3];
+        ms.ip[2] = (int)sa.sa_data[4];
+        ms.ip[3] = (int)sa.sa_data[5];
+        fprintf(fp,"sf_family= %d ,port= %d ,ip= %d.%d.%d.%d\n",ms.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
+        return ms;
+    }
+}
+/////////
 
 struct link_map{
     target_ulong l_addr;
@@ -396,13 +439,8 @@ static target_ulong getLinkMapStartAddrByDynamic(FILE * fp,CPUState *cpu, target
        //target_ulong d_tag = *((target_ulong *)(startAddr+i*0x10));
         fprintf(fp,TARGET_FMT_lx" "TARGET_FMT_lx" "TARGET_FMT_lx"\n",startAddr+i*2*sizeof(target_ulong),ptd.d_tag,ptd.d_un);
         if(ptd.d_tag == 0x15){
-            fprintf(fp,"**********************************1\n");
-            fprintf(fp,TARGET_FMT_lx"\n",ptd.d_tag);
-            fprintf(fp,TARGET_FMT_lx"\n",ptd.d_un);
             struct pt_dynamic re ;
             cpu_memory_rw_debug(cpu,ptd.d_un,(uint8_t *)&re,sizeof(re),0);
-            fprintf(fp,TARGET_FMT_lx"\n",re.d_un);
-            fprintf(fp,"**********************************2\n");
             return re.d_un;
         }
     }
@@ -743,6 +781,7 @@ int cpu_exec(CPUState *cpu)
                                             my_qemu_log("error! syscall can not find matched pid and tid.\n");
                                         }
                                     }
+                                    printSocket(stackWrite,cpu,env->regs[R_ESI]);
                                     fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);                                  
                                     void *stackTop = curThread->stack->pTop;
                                     logData ldTmp;
