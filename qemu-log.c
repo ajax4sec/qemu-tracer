@@ -29,7 +29,7 @@ static int log_append = 1;
 //////////////////////////add by aquan
 void my_qemu_log(const char *fmt, ...)
 {
-    if(QEMULOG) return;
+    if(!QEMULOG) return;
     va_list ap;
 
     va_start(ap, fmt);
