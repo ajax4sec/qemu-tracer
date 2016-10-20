@@ -33,21 +33,24 @@
 #include "header/Stack.h"
 #include "header/List.h"
 
-#define osBit32 1 
+#define osBit32 0
 #if osBit32 
 typedef uint32_t my_target_ulong;
 #define kernelMinAddr 0xc0000000           //if an address less than kernelMinAddr, it is in user space, otherwise in kernel space 
 #define gotMinAddr 0x80000000              //if the share object start address in 32 bit os
-#define MY_TARGET_FMT_lx "%08x" 
+#define MY_TARGET_FMT_lx "%08ux" 
 #else
 typedef uint64_t my_target_ulong;
 #define kernelMinAddr 0xf000000000000000
 #define gotMinAddr 0x0000555555554000 
-#define MY_TARGET_FMT_lx "%016x" PRIx64
+#define MY_TARGET_FMT_lx "%016lx" PRIx64
 #endif
 
-#define commOffset 0x3f0 //lubuntu32
-#define tidOffset 0x308 //lubuntu32
+//#define commOffset 0x3f0 //lubuntu32
+//#define tidOffset 0x308 //lubuntu32
+
+#define commOffset 0x5e0 //lubuntu64
+#define tidOffset 0x438 //lubuntu64
 
 //#define commOffset 0x2cc //busybox 
 //#define tidOffset 0x438 //busybox 
@@ -75,13 +78,13 @@ static int printList(threadList* a,void *e){
     while(!isStackEmpty(a->stack)){
         logData ld;
         popStack(a->stack,&ld);
-       // printf("##: %c  ",ld.type);
-	    my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+        // printf("##: %c  ",ld.type);
+        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
     }
     my_qemu_log("__________________________\n");
     return 0;
 }
- //////////////////////////////////////
+//////////////////////////////////////
 
 
 static void align_clocks(SyncClocks *sc, const CPUState *cpu)
@@ -120,15 +123,15 @@ static void print_delay(const SyncClocks *sc)
     static int nb_prints;
 
     if (icount_align_option &&
-        sc->realtime_clock - last_realtime_clock >= MAX_DELAY_PRINT_RATE &&
-        nb_prints < MAX_NB_PRINTS) {
+            sc->realtime_clock - last_realtime_clock >= MAX_DELAY_PRINT_RATE &&
+            nb_prints < MAX_NB_PRINTS) {
         if ((-sc->diff_clk / (float)1000000000LL > threshold_delay) ||
-            (-sc->diff_clk / (float)1000000000LL <
-             (threshold_delay - THRESHOLD_REDUCE))) {
+                (-sc->diff_clk / (float)1000000000LL <
+                 (threshold_delay - THRESHOLD_REDUCE))) {
             threshold_delay = (-sc->diff_clk / 1000000000LL) + 1;
             printf("Warning: The guest is now late by %.1f to %.1f seconds\n",
-                   threshold_delay - 1,
-                   threshold_delay);
+                    threshold_delay - 1,
+                    threshold_delay);
             nb_prints++;
             last_realtime_clock = sc->realtime_clock;
         }
@@ -136,7 +139,7 @@ static void print_delay(const SyncClocks *sc)
 }
 
 static void init_delay_params(SyncClocks *sc,
-                              const CPUState *cpu)
+        const CPUState *cpu)
 {
     if (!icount_align_option) {
         return;
@@ -237,7 +240,7 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, uint8_t *tb_ptr)
     next_tb = tcg_qemu_tb_exec(env, tb_ptr);
     cpu->can_do_io = 1;
     trace_exec_tb_exit((void *) (next_tb & ~TB_EXIT_MASK),
-                       next_tb & TB_EXIT_MASK);
+            next_tb & TB_EXIT_MASK);
 
     if ((next_tb & TB_EXIT_MASK) > TB_EXIT_IDX1) {
         /* We didn't start executing this TB (eg because the instruction
@@ -265,7 +268,7 @@ static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, uint8_t *tb_ptr)
 /* Execute the code without caching the generated code. An interpreter
    could be used if available. */
 static void cpu_exec_nocache(CPUState *cpu, int max_cycles,
-                             TranslationBlock *orig_tb)
+        TranslationBlock *orig_tb)
 {
     TranslationBlock *tb;
 
@@ -275,7 +278,7 @@ static void cpu_exec_nocache(CPUState *cpu, int max_cycles,
         max_cycles = CF_COUNT_MASK;
 
     tb = tb_gen_code(cpu, orig_tb->pc, orig_tb->cs_base, orig_tb->flags,
-                     max_cycles | CF_NOCACHE);
+            max_cycles | CF_NOCACHE);
     tb->orig_tb = tcg_ctx.tb_ctx.tb_invalidated_flag ? NULL : orig_tb;
     cpu->current_tb = tb;
     /* execute the generated code */
@@ -288,9 +291,9 @@ static void cpu_exec_nocache(CPUState *cpu, int max_cycles,
 }
 
 static TranslationBlock *tb_find_slow(CPUState *cpu,
-                                      target_ulong pc,
-                                      target_ulong cs_base,
-                                      uint64_t flags)
+        target_ulong pc,
+        target_ulong cs_base,
+        uint64_t flags)
 {
     CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb, **ptb1;
@@ -310,9 +313,9 @@ static TranslationBlock *tb_find_slow(CPUState *cpu,
         if (!tb)
             goto not_found;
         if (tb->pc == pc &&
-            tb->page_addr[0] == phys_page1 &&
-            tb->cs_base == cs_base &&
-            tb->flags == flags) {
+                tb->page_addr[0] == phys_page1 &&
+                tb->cs_base == cs_base &&
+                tb->flags == flags) {
             /* check next page if needed */
             if (tb->page_addr[1] != -1) {
                 tb_page_addr_t phys_page2;
@@ -328,11 +331,11 @@ static TranslationBlock *tb_find_slow(CPUState *cpu,
         }
         ptb1 = &tb->phys_hash_next;
     }
- not_found:
-   /* if no translated code available, then translate it now */
+not_found:
+    /* if no translated code available, then translate it now */
     tb = tb_gen_code(cpu, pc, cs_base, flags, 0);
 
- found:
+found:
     /* Move the last found TB to the head of the list */
     if (likely(*ptb1)) {
         *ptb1 = tb->phys_hash_next;
@@ -357,7 +360,7 @@ static inline TranslationBlock *tb_find_fast(CPUState *cpu)
     cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
     tb = cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)];
     if (unlikely(!tb || tb->pc != pc || tb->cs_base != cs_base ||
-                 tb->flags != flags)) {
+                tb->flags != flags)) {
         tb = tb_find_slow(cpu, pc, cs_base, flags);
     }
     return tb;
@@ -399,11 +402,11 @@ static struct mySocket printSocket(FILE * fp, CPUState *cpu,my_target_ulong rsi)
     }
     else{
         /*
-        for(int i=0;i<14;i++){
-            fprintf(fp,"%d ",sa.sa_data[i]);
-        }
-        fprintf(fp,"\n");
-        */
+           for(int i=0;i<14;i++){
+           fprintf(fp,"%d ",sa.sa_data[i]);
+           }
+           fprintf(fp,"\n");
+         */
         ms.sa_family=sa.sa_family;
         int data0,data1;
         if(sa.sa_data[0]<0) data0=0x100+sa.sa_data[0];
@@ -450,7 +453,7 @@ static my_target_ulong getLinkMapStartAddrByDynamic(FILE * fp,CPUState *cpu, my_
     int i;
     for( i=0;i<85;i++){
         cpu_memory_rw_debug(cpu,startAddr+i*2*sizeof(my_target_ulong),(uint8_t *)&ptd,sizeof(ptd),0);
-        fprintf(fp,TARGET_FMT_lx" "MY_TARGET_FMT_lx" "MY_TARGET_FMT_lx"\n",startAddr+i*2*sizeof(my_target_ulong),ptd.d_tag,ptd.d_un);
+        fprintf(fp,MY_TARGET_FMT_lx" "MY_TARGET_FMT_lx" "MY_TARGET_FMT_lx"\n",startAddr+i*2*sizeof(my_target_ulong),ptd.d_tag,ptd.d_un);
         if(ptd.d_tag == 0x15){
             struct pt_dynamic re ;
             cpu_memory_rw_debug(cpu,ptd.d_un,(uint8_t *)&re,sizeof(re),0);
@@ -685,15 +688,15 @@ int cpu_exec(CPUState *cpu)
                 }
                 if (qemu_loglevel_mask(CPU_LOG_EXEC)) {
                     qemu_log("Trace %p [" TARGET_FMT_lx "] %s\n",
-                             tb->tc_ptr, tb->pc, lookup_symbol(tb->pc));
+                            tb->tc_ptr, tb->pc, lookup_symbol(tb->pc));
                 }
                 /* see if we can patch the calling TB. When the TB
                    spans two pages, we cannot safely do a direct
                    jump. */
                 /*if (next_tb != 0 && tb->page_addr[1] == -1) {
-                    tb_add_jump((TranslationBlock *)(next_tb & ~TB_EXIT_MASK),
-                                next_tb & TB_EXIT_MASK, tb);
-                }*/
+                  tb_add_jump((TranslationBlock *)(next_tb & ~TB_EXIT_MASK),
+                  next_tb & TB_EXIT_MASK, tb);
+                  }*/
                 have_tb_lock = false;
                 spin_unlock(&tcg_ctx.tb_ctx.tb_lock);
 
@@ -710,97 +713,97 @@ int cpu_exec(CPUState *cpu)
                     next_tb = cpu_tb_exec(cpu, tc_ptr);
                     if(qemu_loglevel_mask(CPU_LOG_FUNC) && (next_tb & TB_EXIT_MASK)<2){
                         if(tb->type==TB_CALL || tb->type==TB_RET){
-			            target_ulong tr=env->tr.base,esp0,task;
-			            char processname[16];
-			            cpu_memory_rw_debug(cpu,tr+0x4,(uint8_t *)&esp0,sizeof(esp0),0);
+                            target_ulong tr=env->tr.base,esp0,task;
+                            char processname[16];
+                            cpu_memory_rw_debug(cpu,tr+0x4,(uint8_t *)&esp0,sizeof(esp0),0);
 #if osBit32
-			            cpu_memory_rw_debug(cpu,esp0&0xffffe000,(uint8_t *)&task,sizeof(task),0);
+                            cpu_memory_rw_debug(cpu,esp0&0xffffe000,(uint8_t *)&task,sizeof(task),0);
 #else
-			            //cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(processname),0);
-			            cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(task),0);
+                            //cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(processname),0);
+                            cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(task),0);
 #endif
-                        cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
-                        //if(strstr(processname,target)){
-                        if(strcmp(processname,target)==0){
-                            //initialize list and open a file to log stack
-                            if(countCpuExec==0){
-                                initList(&L,sizeof(threadList));
-                                curThread = malloc(sizeof(threadList));
-                                countCpuExec=1;
-                                stackWrite = fopen("stack","w");
-                                if(NULL == stackWrite){
-                                    exit(0);
-                                }
-                            }
-
-				            target_ulong esp=env->regs[R_ESP];
-				            uint32_t tid;
-				            cpu_memory_rw_debug(cpu,task+tidOffset,(uint8_t *)&tid,sizeof(tid),0);
-                		    if(tb->type==TB_CALL){
-                                if(funcistraced(env->eip)!=-1){
-                                    my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
-                                    //print stack
-                                    if(curThread->pid!=env->cr[3] || curThread->tid!=tid){
-                                        if(GetCurThread(&L,env->cr[3],tid,curThread)!=0){
-                                            my_qemu_log("error! syscall can not find matched pid and tid.\n");
-                                        }
+                            cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
+                            //if(strstr(processname,target)){
+                            if(strcmp(processname,target)==0){
+                                //initialize list and open a file to log stack
+                                if(countCpuExec==0){
+                                    initList(&L,sizeof(threadList));
+                                    curThread = malloc(sizeof(threadList));
+                                    countCpuExec=1;
+                                    stackWrite = fopen("stack","w");
+                                    if(NULL == stackWrite){
+                                        exit(0);
                                     }
-#if osBit32
-                                    printSocket(stackWrite,cpu,env->regs[R_EDX]);
-#else 
-                                    printSocket(stackWrite,cpu,env->regs[R_ESI]);
-#endif
-
-                                    fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);                                  
-                                    void *stackTop = curThread->stack->pTop;
-                                    logData ldTmp;
-                                    while(!isStackEmpty(curThread->stack)){
-                                        popStack(curThread->stack,&ldTmp);
-                				        fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldTmp.processName,ldTmp.curAddr,ldTmp.goAddr,ldTmp.pid,ldTmp.tid,ldTmp.esp);
-                                    }
-                                    fprintf(stackWrite,"\n");
-                                    curThread->stack->pTop = stackTop;
-                                   
-                                    printLinkMap(stackWrite,cpu,got);
                                 }
 
-                		        if(esp<kernelMinAddr){
-                                    ld.type = 'C';
-                                    ld.processName = processname; 
-                                    ld.curAddr = tb->pc+tb->size-2;
-                                    ld.goAddr = env->eip;
-                                    ld.pid = env->cr[3];
-                                    ld.tid = tid;
-                                    ld.esp = esp;
-                                    if(ld.pid==curThread->pid && ld.tid == curThread->tid){
-                                        pushStack(curThread->stack,&ld);
-                                    }
-                                    else{
-                                        //search threadList
-                                        if(GetCurThread(&L,ld.pid,ld.tid,curThread)==0){
-                                            //find this thread
-                                             pushStack(curThread->stack,&ld);
-                                        }
-                                        else{
-                                            //can't find this thread, need add a item to List
-                                            s = malloc(sizeof(Stack));                  
-                                            tl = malloc(sizeof(threadList));
-                                            initStack(s,sizeof(logData));
-                                            pushStack(s,&ld);
-                                            tl->stack = s;
-                                            tl->pid = ld.pid;
-                                            tl->tid = ld.tid;
-                                    
-                                            appendList(&L,tl);
-                                            curThread = tl;
+                                target_ulong esp=env->regs[R_ESP];
+                                uint32_t tid;
+                                cpu_memory_rw_debug(cpu,task+tidOffset,(uint8_t *)&tid,sizeof(tid),0);
+                                if(tb->type==TB_CALL){
+                                    if(funcistraced(env->eip)!=-1){
+                                        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
+                                        //print stack
+                                        if(curThread->pid!=env->cr[3] || curThread->tid!=tid){
+                                            if(GetCurThread(&L,env->cr[3],tid,curThread)!=0){
+                                                my_qemu_log("error! syscall can not find matched pid and tid.\n");
                                             }
                                         }
-                				        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+#if osBit32
+                                        printSocket(stackWrite,cpu,env->regs[R_EDX]);
+#else 
+                                        printSocket(stackWrite,cpu,env->regs[R_ESI]);
+#endif
+
+                                        fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);                                  
+                                        void *stackTop = curThread->stack->pTop;
+                                        logData ldTmp;
+                                        while(!isStackEmpty(curThread->stack)){
+                                            popStack(curThread->stack,&ldTmp);
+                                            fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldTmp.processName,ldTmp.curAddr,ldTmp.goAddr,ldTmp.pid,ldTmp.tid,ldTmp.esp);
+                                        }
+                                        fprintf(stackWrite,"\n");
+                                        curThread->stack->pTop = stackTop;
+
+                                        printLinkMap(stackWrite,cpu,got);
                                     }
-                				}else if(tb->type==TB_RET){
-                				    if(esp<kernelMinAddr){
+
+                                    if(esp<kernelMinAddr){
+                                        ld.type = 'C';
+                                        ld.processName = processname; 
+                                        ld.curAddr = tb->pc+tb->size-2;
+                                        ld.goAddr = env->eip;
+                                        ld.pid = env->cr[3];
+                                        ld.tid = tid;
+                                        ld.esp = esp;
+                                        if(ld.pid==curThread->pid && ld.tid == curThread->tid){
+                                            pushStack(curThread->stack,&ld);
+                                        }
+                                        else{
+                                            //search threadList
+                                            if(GetCurThread(&L,ld.pid,ld.tid,curThread)==0){
+                                                //find this thread
+                                                pushStack(curThread->stack,&ld);
+                                            }
+                                            else{
+                                                //can't find this thread, need add a item to List
+                                                s = malloc(sizeof(Stack));                  
+                                                tl = malloc(sizeof(threadList));
+                                                initStack(s,sizeof(logData));
+                                                pushStack(s,&ld);
+                                                tl->stack = s;
+                                                tl->pid = ld.pid;
+                                                tl->tid = ld.tid;
+
+                                                appendList(&L,tl);
+                                                curThread = tl;
+                                            }
+                                        }
+                                        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                    }
+                                }else if(tb->type==TB_RET){
+                                    if(esp<kernelMinAddr){
                                         ld.esp = esp-sizeof(my_target_ulong);
-//                                        my_qemu_log(TARGET_FMT_lx"###\n",esp);
+                                        //my_qemu_log(TARGET_FMT_lx"###\n",esp);
 
                                         //pop stack
                                         int noPopTag = 0;
@@ -817,56 +820,56 @@ int cpu_exec(CPUState *cpu)
                                             GetTopStack(curThread->stack,&ldPop);
                                             if(ldPop.esp != ld.esp){
                                                 //exception: esp is not matched
-                                               
-                                               if(isStackEmpty(curThread->stack)){
-                                                   my_qemu_log("fork return\n");
-                                               }
-                                               else{
-                                                   my_qemu_log("pop stack while esp not matched,start\n");
-                                                   while(!isStackEmpty(curThread->stack)){
-                                                       GetTopStack(curThread->stack,&ldPop);
-                                                       if(ld.esp==ldPop.esp || ld.goAddr-2 == ldPop.curAddr){
-                                                           break;
-                                                       }
-                                                       else{
 
-                                                           if(ld.esp<ldPop.esp){
-                                                               my_qemu_log("abort this return @@\n");
-                                                               noPopTag = 1;
-                                                               break;
-                                                           }
+                                                if(isStackEmpty(curThread->stack)){
+                                                    my_qemu_log("fork return\n");
+                                                }
+                                                else{
+                                                    my_qemu_log("pop stack while esp not matched,start\n");
+                                                    while(!isStackEmpty(curThread->stack)){
+                                                        GetTopStack(curThread->stack,&ldPop);
+                                                        if(ld.esp==ldPop.esp || ld.goAddr-2 == ldPop.curAddr){
+                                                            break;
+                                                        }
+                                                        else{
 
-                                                           popStack(curThread->stack,&ldPop);
-                                                           my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldPop.processName,ldPop.curAddr,ldPop.goAddr,ldPop.pid,ldPop.tid,ldPop.esp);
-                                                       }
-                                                   }
-                                                   my_qemu_log("pop stack while esp not matched,end\n");
-                                                   
-                                                   if(isStackEmpty(curThread->stack)){
-                                                       my_qemu_log("algorithm error\n");
-                                                       my_qemu_log("##########################################################\n");
-                                                       my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
-                                                       my_qemu_log("**********************************************************\n");
-                                                       traverseList(&L,(TRAVERSEFUNC)printList,0);
-                                                       my_qemu_log("**********************************************************\n");
+                                                            if(ld.esp<ldPop.esp){
+                                                                my_qemu_log("abort this return @@\n");
+                                                                noPopTag = 1;
+                                                                break;
+                                                            }
 
-                                                       printLinkMap(stackWrite,cpu,got);
+                                                            popStack(curThread->stack,&ldPop);
+                                                            my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ldPop.processName,ldPop.curAddr,ldPop.goAddr,ldPop.pid,ldPop.tid,ldPop.esp);
+                                                        }
+                                                    }
+                                                    my_qemu_log("pop stack while esp not matched,end\n");
 
-                                                       exit(0);
-                                                   }
-                                               }
+                                                    if(isStackEmpty(curThread->stack)){
+                                                        my_qemu_log("algorithm error\n");
+                                                        my_qemu_log("##########################################################\n");
+                                                        my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                                        my_qemu_log("**********************************************************\n");
+                                                        traverseList(&L,(TRAVERSEFUNC)printList,0);
+                                                        my_qemu_log("**********************************************************\n");
+
+                                                        printLinkMap(stackWrite,cpu,got);
+
+                                                        exit(0);
+                                                    }
+                                                }
 
                                                 if(noPopTag==0)
-                                                popStack(curThread->stack,&ldPop);
+                                                    popStack(curThread->stack,&ldPop);
                                             }
                                             else{
                                                 if(noPopTag==0)
-                                                popStack(curThread->stack,&ldPop);
+                                                    popStack(curThread->stack,&ldPop);
                                             }
                                         }
                                         else{
                                             if(GetCurThread(&L,ld.pid,ld.tid,curThread)==0){
-                                            //find this thread
+                                                //find this thread
                                                 GetTopStack(curThread->stack,&ldPop);
                                                 if(ldPop.esp != ld.esp){
                                                     if(isStackEmpty(curThread->stack)){
@@ -890,7 +893,7 @@ int cpu_exec(CPUState *cpu)
                                                             }
                                                         }
                                                         my_qemu_log("pop stack while esp not matched,end2\n");
-     
+
                                                         if(isStackEmpty(curThread->stack)){
                                                             my_qemu_log("algorithm error2\n");
                                                             my_qemu_log("##########################################################\n");
@@ -915,7 +918,7 @@ int cpu_exec(CPUState *cpu)
                                                 //ERRER: can't find a thread which contains this return
                                                 my_qemu_log("**********************************************************\n");
                                                 my_qemu_log("error! a new thread but the fisrt Instruction is return \n");
-                				                my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
+                                                my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
                                                 //traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                 my_qemu_log("**********************************************************\n");
                                                 //exit(0);
@@ -925,76 +928,76 @@ int cpu_exec(CPUState *cpu)
                                         //added by aquan
                                         /////////////////////////////////////////////////////////////////
 
-                				        //qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong)+4);
-                				        my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
-                                    }
-                			    }
-                            }
-                                //qemu_log("%"PRIx64","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,tb->pc+tb->size-2,env->eip);
-                        }
-                            /*target_ulong pid=env->cr[3],esp=env->regs[R_ESP];
-                            char modulename[64-sizeof(unsigned long)]="";
-                            if(tb->pc>=kernel_start && tb->pc<=kernel_end){
-                                strcpy(modulename,"kernel");
-                            }                             
-                            qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx","TARGET_FMT_lx",%s,"TARGET_FMT_lx","TARGET_FMT_lx,qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,esp,modulename,env->eip,tb->pc+tb->size-2);
-                            if(funcistraced(env->eip)!=-1){
-                                int i;
-                                for(i=0;funcargv[id][i]!='\0';i++){
-                                    switch(funcargv[id][i]){
-                                        case 'v':break;
-                                        case 'i':qemu_log(","TARGET_FMT_ld,env->regs[argorder[i]]);break;
-                                        case 's':
-                                            char tmp[100];
-                                            cpu_memory_rw_debug(cpu,env->regs[argorder[i]],(uint8_t *)&tmp,sizeof(tmp),0);
-                                            qemu_log(",%s",tmp);
-                                            break;
-                                        case 'o':qemu_log(","TARGET_FMT_lx,env->regs[argorder[i]]);break;
+                                        //qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(target_ulong)+4);
+                                        my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
                                     }
                                 }
                             }
-                            qemu_log("\n");
-                        }else if(tb->type==TB_RET){
-                            qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cr[3],env->regs[R_ESP]-sizeof(target_ulong));
-                        }*/
+                            //qemu_log("%"PRIx64","TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,tb->pc+tb->size-2,env->eip);
+                        }
+                        /*target_ulong pid=env->cr[3],esp=env->regs[R_ESP];
+                          char modulename[64-sizeof(unsigned long)]="";
+                          if(tb->pc>=kernel_start && tb->pc<=kernel_end){
+                          strcpy(modulename,"kernel");
+                          }                             
+                          qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx","TARGET_FMT_lx",%s,"TARGET_FMT_lx","TARGET_FMT_lx,qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),pid,esp,modulename,env->eip,tb->pc+tb->size-2);
+                          if(funcistraced(env->eip)!=-1){
+                          int i;
+                          for(i=0;funcargv[id][i]!='\0';i++){
+                          switch(funcargv[id][i]){
+                          case 'v':break;
+                          case 'i':qemu_log(","TARGET_FMT_ld,env->regs[argorder[i]]);break;
+                          case 's':
+                          char tmp[100];
+                          cpu_memory_rw_debug(cpu,env->regs[argorder[i]],(uint8_t *)&tmp,sizeof(tmp),0);
+                          qemu_log(",%s",tmp);
+                          break;
+                          case 'o':qemu_log(","TARGET_FMT_lx,env->regs[argorder[i]]);break;
+                          }
+                          }
+                          }
+                          qemu_log("\n");
+                          }else if(tb->type==TB_RET){
+                          qemu_log("0x%"PRIx64",0x"TARGET_FMT_lx","TARGET_FMT_lx"\n",qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),env->cr[3],env->regs[R_ESP]-sizeof(target_ulong));
+                          }*/
                     }                    
 
                     switch (next_tb & TB_EXIT_MASK) {
-                    case TB_EXIT_REQUESTED:
-                        /* Something asked us to stop executing
-                         * chained TBs; just continue round the main
-                         * loop. Whatever requested the exit will also
-                         * have set something else (eg exit_request or
-                         * interrupt_request) which we will handle
-                         * next time around the loop.
-                         */
-                        next_tb = 0;
-                        break;
-                    case TB_EXIT_ICOUNT_EXPIRED:
-                    {
-                        /* Instruction counter expired.  */
-                        int insns_left = cpu->icount_decr.u32;
-                        if (cpu->icount_extra && insns_left >= 0) {
-                            /* Refill decrementer and continue execution.  */
-                            cpu->icount_extra += insns_left;
-                            insns_left = MIN(0xffff, cpu->icount_extra);
-                            cpu->icount_extra -= insns_left;
-                            cpu->icount_decr.u16.low = insns_left;
-                        } else {
-                            if (insns_left > 0) {
-                                /* Execute remaining instructions.  */
-                                tb = (TranslationBlock *)(next_tb & ~TB_EXIT_MASK);
-                                cpu_exec_nocache(cpu, insns_left, tb);
-                                align_clocks(&sc, cpu);
-                            }
-                            cpu->exception_index = EXCP_INTERRUPT;
+                        case TB_EXIT_REQUESTED:
+                            /* Something asked us to stop executing
+                             * chained TBs; just continue round the main
+                             * loop. Whatever requested the exit will also
+                             * have set something else (eg exit_request or
+                             * interrupt_request) which we will handle
+                             * next time around the loop.
+                             */
                             next_tb = 0;
-                            cpu_loop_exit(cpu);
-                        }
-                        break;
-                    }
-                    default:
-                        break;
+                            break;
+                        case TB_EXIT_ICOUNT_EXPIRED:
+                            {
+                                /* Instruction counter expired.  */
+                                int insns_left = cpu->icount_decr.u32;
+                                if (cpu->icount_extra && insns_left >= 0) {
+                                    /* Refill decrementer and continue execution.  */
+                                    cpu->icount_extra += insns_left;
+                                    insns_left = MIN(0xffff, cpu->icount_extra);
+                                    cpu->icount_extra -= insns_left;
+                                    cpu->icount_decr.u16.low = insns_left;
+                                } else {
+                                    if (insns_left > 0) {
+                                        /* Execute remaining instructions.  */
+                                        tb = (TranslationBlock *)(next_tb & ~TB_EXIT_MASK);
+                                        cpu_exec_nocache(cpu, insns_left, tb);
+                                        align_clocks(&sc, cpu);
+                                    }
+                                    cpu->exception_index = EXCP_INTERRUPT;
+                                    next_tb = 0;
+                                    cpu_loop_exit(cpu);
+                                }
+                                break;
+                            }
+                        default:
+                            break;
                     }
                 }
                 cpu->current_tb = NULL;
