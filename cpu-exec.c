@@ -33,12 +33,12 @@
 #include "header/Stack.h"
 #include "header/List.h"
 
-#define osBit32 0
+#define osBit32 1
 #if osBit32 
 typedef uint32_t my_target_ulong;
 #define kernelMinAddr 0xc0000000           //if an address less than kernelMinAddr, it is in user space, otherwise in kernel space 
 #define gotMinAddr 0x80000000              //if the share object start address in 32 bit os
-#define MY_TARGET_FMT_lx "%08ux" 
+#define MY_TARGET_FMT_lx "%08x" 
 #else
 typedef uint64_t my_target_ulong;
 #define kernelMinAddr 0xf000000000000000
@@ -49,11 +49,11 @@ typedef uint64_t my_target_ulong;
 //#define commOffset 0x3f0 //lubuntu32
 //#define tidOffset 0x308 //lubuntu32
 
-#define commOffset 0x5e0 //lubuntu64
-#define tidOffset 0x438 //lubuntu64
+//#define commOffset 0x5e0 //lubuntu64
+//#define tidOffset 0x438 //lubuntu64
 
-//#define commOffset 0x2cc //busybox 
-//#define tidOffset 0x438 //busybox 
+#define commOffset 0x2cc //busybox 
+#define tidOffset 0x438 //busybox 
 
 /* -icount align implementation. */
 
@@ -380,6 +380,15 @@ static void cpu_handle_debug_exception(CPUState *cpu)
     cc->debug_excp_handler(cpu);
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//get parameter
+static void printStrParameter(FILE * fp, CPUState *cpu,my_target_ulong reg){
+    char para[50];
+    cpu_memory_rw_debug(cpu,reg,(uint8_t *)&para,sizeof(para),0);
+    fprintf(fp,MY_TARGET_FMT_lx",%s\n",reg,para);
+    return;
+}
+
+
 // get ip and port
 
 struct sockaddr{
@@ -453,7 +462,7 @@ static my_target_ulong getLinkMapStartAddrByDynamic(FILE * fp,CPUState *cpu, my_
     int i;
     for( i=0;i<85;i++){
         cpu_memory_rw_debug(cpu,startAddr+i*2*sizeof(my_target_ulong),(uint8_t *)&ptd,sizeof(ptd),0);
-        fprintf(fp,MY_TARGET_FMT_lx" "MY_TARGET_FMT_lx" "MY_TARGET_FMT_lx"\n",startAddr+i*2*sizeof(my_target_ulong),ptd.d_tag,ptd.d_un);
+        fprintf(fp,TARGET_FMT_lx" "MY_TARGET_FMT_lx" "MY_TARGET_FMT_lx"\n",startAddr+i*2*sizeof(my_target_ulong),ptd.d_tag,ptd.d_un);
         if(ptd.d_tag == 0x15){
             struct pt_dynamic re ;
             cpu_memory_rw_debug(cpu,ptd.d_un,(uint8_t *)&re,sizeof(re),0);
@@ -749,8 +758,10 @@ int cpu_exec(CPUState *cpu)
                                             }
                                         }
 #if osBit32
+                                        printStrParameter(stackWrite,cpu,env->regs[R_EAX]);
                                         printSocket(stackWrite,cpu,env->regs[R_EDX]);
 #else 
+                                        printStrParameter(stackWrite,cpu,env->regs[R_EDI]);
                                         printSocket(stackWrite,cpu,env->regs[R_ESI]);
 #endif
 
