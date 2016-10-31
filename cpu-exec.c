@@ -48,12 +48,15 @@ typedef uint64_t my_target_ulong;
 
 //#define commOffset 0x3f0 //lubuntu32
 //#define tidOffset 0x308 //lubuntu32
+//#define realParentOffset 0x448
 
 //#define commOffset 0x5e0 //lubuntu64
 //#define tidOffset 0x438 //lubuntu64
+//#define realParentOffset 0x448
 
 #define commOffset 0x2cc //busybox 
 #define tidOffset 0x438 //busybox 
+//#define realParentOffset 0x448
 
 /* -icount align implementation. */
 
@@ -380,6 +383,11 @@ static void cpu_handle_debug_exception(CPUState *cpu)
     cc->debug_excp_handler(cpu);
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+static my_target_ulong getParentPid(CPUState *cpu,my_target_ulong realParentAddr){
+
+}
+
+
 //get parameter
 static void printStrParameter(FILE * fp, CPUState *cpu,my_target_ulong reg){
     char para[50];
