@@ -54,9 +54,9 @@ typedef uint64_t my_target_ulong;
 //#define tidOffset 0x438 //lubuntu64
 //#define realParentOffset 0x448
 
-#define commOffset 0x2cc //busybox 
-#define tidOffset 0x438 //busybox 
-//#define realParentOffset 0x448
+#define commOffset 0x2d4 //busybox 
+#define tidOffset 0x1f8 //busybox 
+#define realParentOffset 0x204 //busybox
 
 /* -icount align implementation. */
 
@@ -384,7 +384,11 @@ static void cpu_handle_debug_exception(CPUState *cpu)
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static my_target_ulong getParentPid(CPUState *cpu,my_target_ulong realParentAddr){
-
+    my_target_ulong pts ; //parent task_struct
+    my_target_ulong ppid; //parent pid
+    cpu_memory_rw_debug(cpu,realParentOffset,(uint8_t*)&pts,sizeof(pts),0);
+    cpu_memory_rw_debug(cpu,pts+realParentOffset,(uint8_t*)&ppid,sizeof(pts),0);
+    return ppid;
 }
 
 
@@ -550,6 +554,7 @@ volatile sig_atomic_t exit_request;
 ////////////////////////////////////////////////////
 //added by aquan
 List L;
+List tracePidList;
 threadList* curThread;
 Stack* s;
 threadList* tl ;
@@ -740,11 +745,13 @@ int cpu_exec(CPUState *cpu)
                             cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(task),0);
 #endif
                             cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
+                            my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
                             //if(strstr(processname,target)){
-                            if(strcmp(processname,target)==0){
+                            if(strcmp(processname,target)==0 || IndexOf(&tracePidList,ppid)!=-1 ){
                                 //initialize list and open a file to log stack
                                 if(countCpuExec==0){
                                     initList(&L,sizeof(threadList));
+                                    initList(&tracePidList,sizeof(my_target_ulong));
                                     curThread = malloc(sizeof(threadList));
                                     countCpuExec=1;
                                     stackWrite = fopen("stack","w");
@@ -752,6 +759,7 @@ int cpu_exec(CPUState *cpu)
                                         exit(0);
                                     }
                                 }
+                                appendList(&tracePidList,&ppid);
 
                                 target_ulong esp=env->regs[R_ESP];
                                 uint32_t tid;
