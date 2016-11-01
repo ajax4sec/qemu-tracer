@@ -47,15 +47,16 @@ typedef uint64_t my_target_ulong;
 #endif
 
 //#define commOffset 0x3f0 //lubuntu32
-//#define tidOffset 0x308 //lubuntu32
+//#define pidOffset 0x308 //lubuntu32
 //#define realParentOffset 0x448
 
 //#define commOffset 0x5e0 //lubuntu64
-//#define tidOffset 0x438 //lubuntu64
+//#define pidOffset 0x438 //lubuntu64
 //#define realParentOffset 0x448
 
 #define commOffset 0x2d4 //busybox 
-#define tidOffset 0x1f8 //busybox 
+#define pidOffset 0x1f8 //busybox 
+//#define tgidOffset 0x1fc //busybox 
 #define realParentOffset 0x204 //busybox
 
 /* -icount align implementation. */
@@ -385,10 +386,18 @@ static void cpu_handle_debug_exception(CPUState *cpu)
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static my_target_ulong getParentPid(CPUState *cpu,my_target_ulong realParentAddr){
     my_target_ulong pts ; //parent task_struct
-    my_target_ulong ppid; //parent pid
-    cpu_memory_rw_debug(cpu,realParentOffset,(uint8_t*)&pts,sizeof(pts),0);
-    cpu_memory_rw_debug(cpu,pts+realParentOffset,(uint8_t*)&ppid,sizeof(pts),0);
+    my_target_ulong ppid; //parent pid 
+    my_target_ulong tmp;
+    cpu_memory_rw_debug(cpu,realParentOffset,(uint8_t*)&tmp,sizeof(tmp),0);
+    cpu_memory_rw_debug(cpu,tmp,(uint8_t*)&pts,sizeof(pts),0);
+    cpu_memory_rw_debug(cpu,pts+pidOffset,(uint8_t*)&ppid,sizeof(ppid),0);
     return ppid;
+}
+
+static my_target_ulong getPid(CPUState *cpu,my_target_ulong pidAddr){
+    my_target_ulong pid;
+    cpu_memory_rw_debug(cpu,pidAddr,(uint8_t*)&pid,sizeof(pid),0);
+    return pid;
 }
 
 
@@ -746,24 +755,34 @@ int cpu_exec(CPUState *cpu)
 #endif
                             cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
                             my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
-                            //if(strstr(processname,target)){
-                            if(strcmp(processname,target)==0 || IndexOf(&tracePidList,ppid)!=-1 ){
+                            int inListFlag = IndexOf(&tracePidList,ppid);
+                            if(strcmp(processname,target)==0 || inListFlag!=-1 ){
+                                my_qemu_log("CCCDDD%d\n",ppid);
                                 //initialize list and open a file to log stack
                                 if(countCpuExec==0){
                                     initList(&L,sizeof(threadList));
                                     initList(&tracePidList,sizeof(my_target_ulong));
+                                    target_ulong pid = getPid(cpu,task+pidOffset);
+                                    appendList(&tracePidList,&pid); // the first pid ,parent of all other process
+                                    my_qemu_log("BBB %d\n",pid);
                                     curThread = malloc(sizeof(threadList));
-                                    countCpuExec=1;
                                     stackWrite = fopen("stack","w");
                                     if(NULL == stackWrite){
                                         exit(0);
                                     }
                                 }
-                                appendList(&tracePidList,&ppid);
+                                if(countCpuExec == 1 && inListFlag!=-1){
+                                    target_ulong pid = getPid(cpu,task+pidOffset);
+                                    my_qemu_log("AAA %d\n",pid);
+                                    if(IndexOf(&tracePidList,pid)==-1){
+                                        appendList(&tracePidList,&pid);
+                                    }
+                                }
+                                countCpuExec=1;// set flag
 
                                 target_ulong esp=env->regs[R_ESP];
                                 uint32_t tid;
-                                cpu_memory_rw_debug(cpu,task+tidOffset,(uint8_t *)&tid,sizeof(tid),0);
+                                cpu_memory_rw_debug(cpu,task+pidOffset,(uint8_t *)&tid,sizeof(tid),0);
                                 if(tb->type==TB_CALL){
                                     if(funcistraced(env->eip)!=-1){
                                         my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
