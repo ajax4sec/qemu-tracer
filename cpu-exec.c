@@ -388,12 +388,8 @@ static my_target_ulong getParentPid(CPUState *cpu,my_target_ulong realParentAddr
     my_target_ulong pts=0 ; //parent task_struct
     my_target_ulong ppid=0; //parent pid 
     my_target_ulong tmp=0;
-    cpu_memory_rw_debug(cpu,realParentAddr,(uint8_t*)&tmp,sizeof(tmp),0);
-    if(tmp==0) return -1;
-    cpu_memory_rw_debug(cpu,tmp,(uint8_t*)&pts,sizeof(pts),0);
-    if(pts==0) return -2;
+    cpu_memory_rw_debug(cpu,realParentAddr,(uint8_t*)&pts,sizeof(tmp),0);
     cpu_memory_rw_debug(cpu,pts+pidOffset,(uint8_t*)&ppid,sizeof(ppid),0);
-//    my_qemu_log("QQQ %d "TARGET_FMT_lx" "TARGET_FMT_lx"\n",(int)ppid,(long int)tmp,(long int)pts);
     return ppid;
 }
 
@@ -760,14 +756,12 @@ int cpu_exec(CPUState *cpu)
                             my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
                             int inListFlag = IndexOf(&tracePidList,ppid);
                             if(strcmp(processname,target)==0 || inListFlag!=-1 ){
-                                my_qemu_log("CCCDDD%d\n",ppid);
                                 //initialize list and open a file to log stack
                                 if(countCpuExec==0){
                                     initList(&L,sizeof(threadList));
                                     initList(&tracePidList,sizeof(my_target_ulong));
                                     target_ulong pid = getPid(cpu,task+pidOffset);
                                     appendList(&tracePidList,&pid); // the first pid ,parent of all other process
-                                    my_qemu_log("BBB %d\n",(int)pid);
                                     curThread = malloc(sizeof(threadList));
                                     stackWrite = fopen("stack","w");
                                     if(NULL == stackWrite){
@@ -777,7 +771,7 @@ int cpu_exec(CPUState *cpu)
                                 if(countCpuExec == 1 && inListFlag!=-1){
                                     target_ulong pid = getPid(cpu,task+pidOffset);
                                     if(IndexOf(&tracePidList,pid)==-1){
-                                        my_qemu_log("AAA %d %d %d %s\n",(int)pid,(int)ppid,inListFlag,processname);
+                                        fprintf(stackWrite,"%d --> %d\n",(int)ppid,(int)pid);
                                         appendList(&tracePidList,&pid);
                                     }
                                 }
