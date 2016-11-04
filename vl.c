@@ -123,16 +123,18 @@ int main(int argc, char **argv)
 #include "exec/semihost.h"
 #include "crypto/init.h"
 
+#include "header/MachineBit.h"
+
 typedef uint64_t target_ulong;
 #define TARGET_lx "%" PRIx64
 //~ typedef uint32_t target_ulong;
 //~ #define TARGET_lx "%08x"
 #define FUNC_MAX 30000
 #define PRAM_MAX 6
-target_ulong kernel_start,kernel_end,funcaddr[FUNC_MAX];
+my_target_ulong kernel_start,kernel_end,funcaddr[FUNC_MAX];
 int funccount=0;
 char funcargv[FUNC_MAX][PRAM_MAX],target[16];
-target_ulong got;
+my_target_ulong got;
 
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
@@ -4107,13 +4109,17 @@ int main(int argc, char **argv, char **envp)
         
         if (qemu_loglevel_mask(CPU_LOG_FUNC)) {    
             FILE *fp = fopen("configs.txt", "r");
-            if(fscanf(fp,TARGET_lx TARGET_lx" %s" TARGET_lx,&kernel_start,&kernel_end,target,&got)){
-                while(fscanf(fp,TARGET_lx" %s",&funcaddr[funccount],funcargv[funccount])!=-1)
+            if(fscanf(fp,MY_TARGET_lx MY_TARGET_lx" %s" MY_TARGET_lx,&kernel_start,&kernel_end,target,&got)){
+                printf("YYYY\n");
+                while(fscanf(fp,MY_TARGET_lx" %s",&funcaddr[funccount],funcargv[funccount])!=-1){
+                    printf(MY_TARGET_lx" \n",funcaddr[funccount]);
                     funccount++;
+                }
             }
             target[15]=0;
             fclose(fp);
 		}
+        printf("haha\n");
 		
     }
 
