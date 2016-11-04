@@ -32,7 +32,8 @@
 
 #include "header/Stack.h"
 #include "header/List.h"
-
+#include "header/MachineBit.h"
+/*
 #define osBit32 1
 #if osBit32 
 typedef uint32_t my_target_ulong;
@@ -57,7 +58,9 @@ typedef uint64_t my_target_ulong;
 #define commOffset 0x2d4 //busybox 
 #define pidOffset 0x1f8 //busybox 
 //#define tgidOffset 0x1fc //busybox 
-#define realParentOffset 0x204 //busybox
+#define realParentOffset 0x204 //busybox 
+
+*/
 
 /* -icount align implementation. */
 
