@@ -534,7 +534,7 @@ static void printLinkMap(FILE * fp,CPUState *cpu,my_target_ulong got){
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-extern target_ulong kernel_start,kernel_end,funcaddr[];
+extern my_target_ulong kernel_start,kernel_end,funcaddr[];
 extern char funcargv[][6],target[];
 extern int funccount;
 const int argorder[6]={R_EDI,R_ESI,R_EDX,R_ECX,8,9};
@@ -543,7 +543,7 @@ extern target_ulong ptDynamic;
 
 bool output=false;
 
-static int funcistraced(target_ulong target)
+static int funcistraced(my_target_ulong target)
 {
     int low=0,high=funccount-1,mid;
     while(low<=high){
