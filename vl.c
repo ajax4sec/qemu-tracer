@@ -4112,7 +4112,7 @@ int main(int argc, char **argv, char **envp)
             if(fscanf(fp,MY_TARGET_lx MY_TARGET_lx" %s" MY_TARGET_lx,&kernel_start,&kernel_end,target,&got)){
                 while(fscanf(fp,MY_TARGET_lx,&funcaddr[funccount])!=-1){
                 //while(fscanf(fp,MY_TARGET_lx" %s",&funcaddr[funccount],funcargv[funccount])!=-1){
-                    printf(MY_TARGET_lx" \n",funcaddr[funccount]);
+                    printf(MY_TARGET_lx"\n",funcaddr[funccount]);
                     funccount++;
                 }
             }

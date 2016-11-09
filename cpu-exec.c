@@ -545,6 +545,7 @@ bool output=false;
 
 static int funcistraced(my_target_ulong target)
 {
+    qemu_log(TARGET_FMT_lx"|"TARGET_FMT_lx"|"TARGET_FMT_lx"\n",target,funcaddr[0],funcaddr[1]);
     int low=0,high=funccount-1,mid;
     while(low<=high){
         mid=(low+high)>>1;
@@ -784,7 +785,7 @@ int cpu_exec(CPUState *cpu)
                                 uint32_t tid;
                                 cpu_memory_rw_debug(cpu,task+pidOffset,(uint8_t *)&tid,sizeof(tid),0);
                                 if(tb->type==TB_CALL){
-                                    if(funcistraced(env->eip)!=-1){
+                                    if((env->eip > kernelMinAddr) && (funcistraced(env->eip)!=-1)){
                                         my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
                                         //print stack
                                         if(curThread->pid!=env->cr[3] || curThread->tid!=tid){
