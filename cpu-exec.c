@@ -731,8 +731,10 @@ int cpu_exec(CPUState *cpu)
                             cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
                             my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
                             int inListFlag = IndexOf(&tracePidList,ppid);
+                            /*
                             if(processname[0]!='\0'&&processname[0]!='0')
                                 qemu_log("%s,%s\n",processname,target);
+                            */
                             if(strcmp(processname,target)==0 || inListFlag!=-1 ){
                                 //initialize list and open a file to log stack
                                 if(countCpuExec==0){
@@ -758,6 +760,11 @@ int cpu_exec(CPUState *cpu)
                                 target_ulong esp=env->regs[R_ESP];
                                 uint32_t tid;
                                 cpu_memory_rw_debug(cpu,task+pidOffset,(uint8_t *)&tid,sizeof(tid),0);
+                                if(tb->type == TB_RET_IM){
+                                    if((env->eip > kernelMinAddr) && (funcistraced(env->eip)!=-1)){
+                                        my_qemu_log(TARGET_FMT_lx" sys_clone\n",env->eip);
+                                    }
+                                }
                                 if(tb->type==TB_CALL){
                                     if((env->eip > kernelMinAddr) && (funcistraced(env->eip)!=-1)){
                                         my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
