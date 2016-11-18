@@ -735,9 +735,14 @@ int cpu_exec(CPUState *cpu)
 #endif
                             cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
                             //my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
-                            my_target_ulong ppid = getParentPid(cpu,task+parentOffset);
+                            my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
+                            my_target_ulong tgid = getPid(cpu,task+tgidOffset); //get tgid 
                             int inListFlag=-1;
-                            if(countCpuExec == 1) inListFlag = IndexOf(&tracePidList,ppid);
+                            if(countCpuExec == 1){
+                                if(IndexOf(&tracePidList,ppid)!=-1 || IndexOf(&tracePidList,tgid)!=-1){
+                                    inListFlag = 0; //it can be assigned to any num but -1
+                                }
+                            }
                             /*
                             if(processname[0]!='\0'&&processname[0]!='0')
                                 qemu_log("%s,%s\n",processname,target);
@@ -748,7 +753,6 @@ int cpu_exec(CPUState *cpu)
                                     initList(&L,sizeof(threadList));
                                     initList(&tracePidList,sizeof(my_target_ulong));
                                     my_target_ulong pid = getPid(cpu,task+pidOffset);
-                                    appendList(&tracePidList,&ppid); // the first pid ,parent of all other process 
                                     appendList(&tracePidList,&pid); // the first pid ,parent of all other process 
                                     curThread = malloc(sizeof(threadList));
                                     stackWrite = fopen("stack","w");
