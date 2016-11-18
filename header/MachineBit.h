@@ -27,6 +27,7 @@ typedef uint64_t my_target_ulong;
 #define commOffset 0x5e0 //lubuntu64
 #define pidOffset 0x438 //lubuntu64
 #define realParentOffset 0x448
+#define parentOffset 0x448
 #endif
 
 #if isBusybox

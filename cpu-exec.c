@@ -63,6 +63,11 @@ static int printList(threadList* a,void *e){
     my_qemu_log("__________________________\n");
     return 0;
 }
+
+static int printPidList(my_target_ulong * a,void *e){
+    printf("%d     ",(int)*a);
+    return 0;
+}
 //////////////////////////////////////
 
 
@@ -729,8 +734,10 @@ int cpu_exec(CPUState *cpu)
                             cpu_memory_rw_debug(cpu,esp0-0x4000,(uint8_t *)&task,sizeof(task),0);
 #endif
                             cpu_memory_rw_debug(cpu,task+commOffset,(uint8_t *)&processname,sizeof(processname),0);
-                            my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
-                            int inListFlag = IndexOf(&tracePidList,ppid);
+                            //my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
+                            my_target_ulong ppid = getParentPid(cpu,task+parentOffset);
+                            int inListFlag=-1;
+                            if(countCpuExec == 1) inListFlag = IndexOf(&tracePidList,ppid);
                             /*
                             if(processname[0]!='\0'&&processname[0]!='0')
                                 qemu_log("%s,%s\n",processname,target);
@@ -741,18 +748,24 @@ int cpu_exec(CPUState *cpu)
                                     initList(&L,sizeof(threadList));
                                     initList(&tracePidList,sizeof(my_target_ulong));
                                     my_target_ulong pid = getPid(cpu,task+pidOffset);
-                                    appendList(&tracePidList,&pid); // the first pid ,parent of all other process
+                                    appendList(&tracePidList,&ppid); // the first pid ,parent of all other process 
+                                    appendList(&tracePidList,&pid); // the first pid ,parent of all other process 
                                     curThread = malloc(sizeof(threadList));
                                     stackWrite = fopen("stack","w");
                                     if(NULL == stackWrite){
                                         exit(0);
                                     }
+                                    fprintf(stackWrite,"%d ----> %d\n",(int)ppid,(int)pid);
+                                    traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
+                                    printf("\n");
                                 }
                                 if(countCpuExec == 1 && inListFlag!=-1){
                                     my_target_ulong pid = getPid(cpu,task+pidOffset);
                                     if(IndexOf(&tracePidList,pid)==-1){
                                         fprintf(stackWrite,"%d --> %d\n",(int)ppid,(int)pid);
                                         appendList(&tracePidList,&pid);
+                                        traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
+                                        printf("\n");
                                     }
                                 }
                                 countCpuExec=1;// set flag
@@ -760,12 +773,20 @@ int cpu_exec(CPUState *cpu)
                                 target_ulong esp=env->regs[R_ESP];
                                 uint32_t tid;
                                 cpu_memory_rw_debug(cpu,task+pidOffset,(uint8_t *)&tid,sizeof(tid),0);
+                                /*
                                 if(tb->type == TB_RET_IM){
-                                    if((env->eip > kernelMinAddr) && (funcistraced(env->eip)!=-1)){
+                                    if(env->eip > kernelMinAddr){
                                         my_qemu_log(TARGET_FMT_lx" sys_clone\n",env->eip);
+                                        my_qemu_log("tb_ret_im,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
                                     }
                                 }
+                                */
                                 if(tb->type==TB_CALL){
+                                    /*
+                                    if(env->eip > kernelMinAddr){
+                                        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
+                                    }
+                                    */
                                     if((env->eip > kernelMinAddr) && (funcistraced(env->eip)!=-1)){
                                         my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
                                         //print stack
@@ -829,6 +850,11 @@ int cpu_exec(CPUState *cpu)
                                         my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",ld.processName,ld.curAddr,ld.goAddr,ld.pid,ld.tid,ld.esp);
                                     }
                                 }else if(tb->type==TB_RET){
+                                    /*
+                                    if(env->eip > kernelMinAddr){
+                                        my_qemu_log("R,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-1,env->eip,env->cr[3],tid,esp-sizeof(my_target_ulong));
+                                    }
+                                    */
                                     if(esp<kernelMinAddr){
                                         ld.esp = esp-sizeof(my_target_ulong);
                                         //my_qemu_log(TARGET_FMT_lx"###\n",esp);

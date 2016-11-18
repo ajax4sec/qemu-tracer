@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include "MachineBit.h"
 #ifndef LIST_H
 #define LIST_H
 
@@ -129,7 +130,7 @@ int freeList(List *head);
 int GetCurThread(const List *head,uint64_t pid,uint64_t tid ,void *e);
 
 //index of element
-int IndexOf(const List *head,int element);
+int IndexOf(const List *head,my_target_ulong element);
 
 
 
@@ -393,7 +394,7 @@ int GetCurThread(const List *head,uint64_t pid,uint64_t tid ,void *e)
 }
 
 // index of elemnet
-int IndexOf(const List *head,int element){
+int IndexOf(const List *head,my_target_ulong element){
     if(head==NULL)
         return(-1);
 
@@ -401,7 +402,7 @@ int IndexOf(const List *head,int element){
     int count = 0;
     while(cur!=NULL)
     {
-        if((*(int*)cur->data)==element){
+        if((*(my_target_ulong*)cur->data)==element){
             return count; 
         }
         cur=cur->next;
