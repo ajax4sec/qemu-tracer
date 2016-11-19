@@ -402,10 +402,12 @@ int IndexOf(const List *head,my_target_ulong element){
     int count = 0;
     while(cur!=NULL)
     {
+        //if((*(my_target_ulong*)cur->data)==element){
         if((*(my_target_ulong*)cur->data)==element){
             return count; 
         }
         cur=cur->next;
+        count ++;
     }
     return(-1);
 }

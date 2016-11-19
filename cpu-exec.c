@@ -748,7 +748,8 @@ int cpu_exec(CPUState *cpu)
                                 qemu_log("%s,%s\n",processname,target);
                             */
                             if(strcmp(processname,target)==0 || inListFlag!=-1 ){
-                                //initialize list and open a file to log stack
+                                //initialize list and open a file to log stack 
+
                                 if(countCpuExec==0){
                                     initList(&L,sizeof(threadList));
                                     initList(&tracePidList,sizeof(my_target_ulong));
@@ -759,20 +760,33 @@ int cpu_exec(CPUState *cpu)
                                     if(NULL == stackWrite){
                                         exit(0);
                                     }
-                                    fprintf(stackWrite,"%d ----> %d\n",(int)ppid,(int)pid);
+                                    fprintf(stackWrite,"%d ----> %d,%d\n",(int)ppid,(int)pid,(int)tgid);
                                     traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
                                     printf("\n");
                                 }
                                 if(countCpuExec == 1 && inListFlag!=-1){
                                     my_target_ulong pid = getPid(cpu,task+pidOffset);
-                                    if(IndexOf(&tracePidList,pid)==-1){
-                                        fprintf(stackWrite,"%d --> %d\n",(int)ppid,(int)pid);
+                                    int tmp = IndexOf(&tracePidList,pid);
+                                    //if(IndexOf(&tracePidList,pid)==-1){
+                                    if(tmp ==-1){
+                                        fprintf(stackWrite,"%d --> %d,%d\n",(int)ppid,(int)pid,(int)tgid);
                                         appendList(&tracePidList,&pid);
                                         traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
                                         printf("\n");
                                     }
+                                    else{
+                                        //fprintf(stackWrite,"E,%d\n",tmp);
+                                        fprintf(stackWrite,"E,%d,%d,%d,%d\n",(int)ppid,(int)pid,(int)tgid,tmp);
+                                        traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
+                                        printf("\n");
+                                    }
                                 }
-                                countCpuExec=1;// set flag
+                                countCpuExec=1;// set flag 
+
+                                my_target_ulong pid1 = getPid(cpu,task+pidOffset);
+                                if(IndexOf(&tracePidList,pid1)==-1){
+                                    fprintf(stackWrite,"D,%d,%d,%d\n",(int)ppid,(int)pid1,(int)tgid);
+                                }
 
                                 target_ulong esp=env->regs[R_ESP];
                                 uint32_t tid;
