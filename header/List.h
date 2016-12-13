@@ -130,7 +130,7 @@ int freeList(List *head);
 int GetCurThread(const List *head,uint64_t pid,uint64_t tid ,void *e);
 
 //index of element
-int IndexOf(const List *head,my_target_ulong element);
+int IndexOf(const List *head,int element);
 
 
 
@@ -394,7 +394,7 @@ int GetCurThread(const List *head,uint64_t pid,uint64_t tid ,void *e)
 }
 
 // index of elemnet
-int IndexOf(const List *head,my_target_ulong element){
+int IndexOf(const List *head,int element){
     if(head==NULL)
         return(-1);
 
@@ -403,7 +403,7 @@ int IndexOf(const List *head,my_target_ulong element){
     while(cur!=NULL)
     {
         //if((*(my_target_ulong*)cur->data)==element){
-        if((*(my_target_ulong*)cur->data)==element){
+        if((*(int*)cur->data)==element){
             return count; 
         }
         cur=cur->next;

@@ -132,6 +132,7 @@ typedef uint64_t target_ulong;
 #define FUNC_MAX 30000
 #define PRAM_MAX 6
 my_target_ulong kernel_start,kernel_end,funcaddr[FUNC_MAX];
+int funcParaPos[FUNC_MAX],funcParaType[FUNC_MAX];
 int funccount=0;
 char funcargv[FUNC_MAX][PRAM_MAX],target[16];
 my_target_ulong got;
@@ -4110,8 +4111,7 @@ int main(int argc, char **argv, char **envp)
         if (qemu_loglevel_mask(CPU_LOG_FUNC)) {    
             FILE *fp = fopen("configs.txt", "r");
             if(fscanf(fp,MY_TARGET_lx MY_TARGET_lx" %s" MY_TARGET_lx,&kernel_start,&kernel_end,target,&got)){
-                while(fscanf(fp,MY_TARGET_lx,&funcaddr[funccount])!=-1){
-                //while(fscanf(fp,MY_TARGET_lx" %s",&funcaddr[funccount],funcargv[funccount])!=-1){
+                while(fscanf(fp,MY_TARGET_lx",%d,%d",&funcaddr[funccount],funcParaPos[funccount],funcParaType[funccount])!=-1){
                     printf(MY_TARGET_lx"\n",funcaddr[funccount]);
                     funccount++;
                 }

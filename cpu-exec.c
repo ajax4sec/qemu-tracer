@@ -34,6 +34,10 @@
 #include "header/List.h"
 #include "header/MachineBit.h"
 
+#define PARASOCKET 0 
+#define PARASTRING 1 
+
+
 /* -icount align implementation. */
 
 typedef struct SyncClocks {
@@ -398,7 +402,8 @@ struct sockaddr{
 struct mySocket{
     unsigned short sa_family;
     int port;
-    int ip[4];
+    //int ip[4];
+    unsigned char ip[4];
 };
 
 static struct mySocket printSocket(FILE * fp, CPUState *cpu,my_target_ulong rsi){
@@ -423,10 +428,10 @@ static struct mySocket printSocket(FILE * fp, CPUState *cpu,my_target_ulong rsi)
         if(sa.sa_data[1]<0) data1=0x100+sa.sa_data[1];
         else data1 = sa.sa_data[1];
         ms.port = data0*0x100 + data1;
-        ms.ip[0] = (int)sa.sa_data[2];
-        ms.ip[1] = (int)sa.sa_data[3];
-        ms.ip[2] = (int)sa.sa_data[4];
-        ms.ip[3] = (int)sa.sa_data[5];
+        ms.ip[0] = sa.sa_data[2];
+        ms.ip[1] = sa.sa_data[3];
+        ms.ip[2] = sa.sa_data[4];
+        ms.ip[3] = sa.sa_data[5];
         fprintf(fp,"sf_family= %d ,port= %d ,ip= %d.%d.%d.%d\n",ms.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
         return ms;
     }
@@ -512,6 +517,7 @@ static void printLinkMap(FILE * fp,CPUState *cpu,my_target_ulong got){
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 extern my_target_ulong kernel_start,kernel_end,funcaddr[];
+extern int funcParaPos[],funcParaType[];
 extern char funcargv[][6],target[];
 extern int funccount;
 const int argorder[6]={R_EDI,R_ESI,R_EDX,R_ECX,8,9};
@@ -548,7 +554,7 @@ threadList* curThread;
 Stack* s;
 threadList* tl ;
 logData ld,ldPop;
-int countCpuExec=0;
+int countCpuExec = 0;
 FILE *stackWrite;
 //added by aquan
 ////////////////////////////////////////////////////
@@ -737,23 +743,19 @@ int cpu_exec(CPUState *cpu)
                             //my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
                             my_target_ulong ppid = getParentPid(cpu,task+realParentOffset);
                             my_target_ulong tgid = getPid(cpu,task+tgidOffset); //get tgid 
-                            int inListFlag=-1;
+                            int inListFlag = -1;
                             if(countCpuExec == 1){
                                 if(IndexOf(&tracePidList,ppid)!=-1 || IndexOf(&tracePidList,tgid)!=-1){
                                     inListFlag = 0; //it can be assigned to any num but -1
                                 }
                             }
-                            /*
-                            if(processname[0]!='\0'&&processname[0]!='0')
-                                qemu_log("%s,%s\n",processname,target);
-                            */
-                            if(strcmp(processname,target)==0 || inListFlag!=-1 ){
+                            if(strcmp(processname,target)==0 || inListFlag !=-1){
                                 //initialize list and open a file to log stack 
 
                                 if(countCpuExec==0){
                                     initList(&L,sizeof(threadList));
-                                    initList(&tracePidList,sizeof(my_target_ulong));
-                                    my_target_ulong pid = getPid(cpu,task+pidOffset);
+                                    initList(&tracePidList,sizeof(int));
+                                    int pid = (int)getPid(cpu,task+pidOffset);
                                     appendList(&tracePidList,&pid); // the first pid ,parent of all other process 
                                     curThread = malloc(sizeof(threadList));
                                     stackWrite = fopen("stack","w");
@@ -761,51 +763,26 @@ int cpu_exec(CPUState *cpu)
                                         exit(0);
                                     }
                                     fprintf(stackWrite,"%d ----> %d,%d\n",(int)ppid,(int)pid,(int)tgid);
-                                    traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
-                                    printf("\n");
+                                    //traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
+                                    //printf("\n");
                                 }
-                                if(countCpuExec == 1 && inListFlag!=-1){
-                                    my_target_ulong pid = getPid(cpu,task+pidOffset);
-                                    int tmp = IndexOf(&tracePidList,pid);
-                                    //if(IndexOf(&tracePidList,pid)==-1){
-                                    if(tmp ==-1){
+                                if(countCpuExec == 1 && inListFlag != -1){
+                                    int pid = (int)getPid(cpu,task+pidOffset);
+                                    if(IndexOf(&tracePidList,pid)==-1){
                                         fprintf(stackWrite,"%d --> %d,%d\n",(int)ppid,(int)pid,(int)tgid);
                                         appendList(&tracePidList,&pid);
-                                        traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
-                                        printf("\n");
-                                    }
-                                    else{
-                                        //fprintf(stackWrite,"E,%d\n",tmp);
-                                        fprintf(stackWrite,"E,%d,%d,%d,%d\n",(int)ppid,(int)pid,(int)tgid,tmp);
-                                        traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
-                                        printf("\n");
+                                        //traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
+                                        //printf("\n");
                                     }
                                 }
+
                                 countCpuExec=1;// set flag 
-
-                                my_target_ulong pid1 = getPid(cpu,task+pidOffset);
-                                if(IndexOf(&tracePidList,pid1)==-1){
-                                    fprintf(stackWrite,"D,%d,%d,%d\n",(int)ppid,(int)pid1,(int)tgid);
-                                }
-
                                 target_ulong esp=env->regs[R_ESP];
                                 uint32_t tid;
                                 cpu_memory_rw_debug(cpu,task+pidOffset,(uint8_t *)&tid,sizeof(tid),0);
-                                /*
-                                if(tb->type == TB_RET_IM){
-                                    if(env->eip > kernelMinAddr){
-                                        my_qemu_log(TARGET_FMT_lx" sys_clone\n",env->eip);
-                                        my_qemu_log("tb_ret_im,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
-                                    }
-                                }
-                                */
                                 if(tb->type==TB_CALL){
-                                    /*
-                                    if(env->eip > kernelMinAddr){
-                                        my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
-                                    }
-                                    */
-                                    if((env->eip > kernelMinAddr) && (funcistraced(env->eip)!=-1)){
+                                    int funcIndex = funcistraced(env->eip);
+                                    if((env->eip > kernelMinAddr) && funcIndex!=-1){
                                         my_qemu_log("C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);
                                         //print stack
                                         if(curThread->pid!=env->cr[3] || curThread->tid!=tid){
@@ -813,13 +790,24 @@ int cpu_exec(CPUState *cpu)
                                                 my_qemu_log("error! syscall can not find matched pid and tid.\n");
                                             }
                                         }
-#if osBit32
-                                        printStrParameter(stackWrite,cpu,env->regs[R_EAX]);
-                                        printSocket(stackWrite,cpu,env->regs[R_EDX]);
+
+                                        if(funcParaPos[funcIndex]!=-1){
+                                            if(funcParaType==PARASTRING) printStrParameter(stackWrite,cpu,env->regs[funcParaPos[funcIndex]]);
+                                            else if(funcParaType==PARASOCKET) printSocket(stackWrite,cpu,env->regs[funcParaPos[funcIndex]]);
+                                        }
+/*                                        
+#if osBit32 
+                                        //printStrParameter(stackWrite,cpu,env->regs[R_EAX]);
+                                        //printSocket(stackWrite,cpu,env->regs[R_EDX]);
 #else 
-                                        printStrParameter(stackWrite,cpu,env->regs[R_EDI]);
-                                        printSocket(stackWrite,cpu,env->regs[R_ESI]);
+                                        if(funcParaPos!=-1){
+                                            if(funcParaType==PARASTRING) printStrParameter(stackWrite,cpu,env->regs[funcParaPos]);
+                                            else if(funcParaType==PARASOCKET) printSocket(stackWrite,cpu,env->regs[funcParaPos]);
+                                        }
+                                        //printStrParameter(stackWrite,cpu,env->regs[R_EDI]);
+                                        //printSocket(stackWrite,cpu,env->regs[R_ESI]);
 #endif
+*/
 
                                         fprintf(stackWrite,"C,%s,"TARGET_FMT_lx","TARGET_FMT_lx","TARGET_FMT_lx",%d,"TARGET_FMT_lx"\n",processname,tb->pc+tb->size-2,env->eip,env->cr[3],tid,esp);                                  
                                         void *stackTop = curThread->stack->pTop;
