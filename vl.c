@@ -4111,8 +4111,8 @@ int main(int argc, char **argv, char **envp)
         if (qemu_loglevel_mask(CPU_LOG_FUNC)) {    
             FILE *fp = fopen("configs.txt", "r");
             if(fscanf(fp,MY_TARGET_lx MY_TARGET_lx" %s" MY_TARGET_lx,&kernel_start,&kernel_end,target,&got)){
-                while(fscanf(fp,MY_TARGET_lx",%d,%d",&funcaddr[funccount],funcParaPos[funccount],funcParaType[funccount])!=-1){
-                    printf(MY_TARGET_lx"\n",funcaddr[funccount]);
+                while(fscanf(fp,MY_TARGET_lx" %d %d",&funcaddr[funccount],&funcParaPos[funccount],&funcParaType[funccount])!=-1){
+                    printf(MY_TARGET_lx" %d %d\n",funcaddr[funccount],funcParaPos[funccount],funcParaType[funccount]);
                     funccount++;
                 }
             }

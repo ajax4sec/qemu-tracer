@@ -67,11 +67,12 @@ static int printList(threadList* a,void *e){
     my_qemu_log("__________________________\n");
     return 0;
 }
-
+/*
 static int printPidList(my_target_ulong * a,void *e){
     printf("%d     ",(int)*a);
     return 0;
 }
+*/
 //////////////////////////////////////
 
 
@@ -792,8 +793,8 @@ int cpu_exec(CPUState *cpu)
                                         }
 
                                         if(funcParaPos[funcIndex]!=-1){
-                                            if(funcParaType==PARASTRING) printStrParameter(stackWrite,cpu,env->regs[funcParaPos[funcIndex]]);
-                                            else if(funcParaType==PARASOCKET) printSocket(stackWrite,cpu,env->regs[funcParaPos[funcIndex]]);
+                                            if(funcParaType[funcIndex]==PARASTRING) printStrParameter(stackWrite,cpu,env->regs[funcParaPos[funcIndex]]);
+                                            else if(funcParaType[funcIndex]==PARASOCKET) printSocket(stackWrite,cpu,env->regs[funcParaPos[funcIndex]]);
                                         }
 /*                                        
 #if osBit32 
