@@ -412,7 +412,7 @@ static struct mySocket printSocket(FILE * fp, CPUState *cpu,my_target_ulong rsi)
     struct sockaddr sa;
     cpu_memory_rw_debug(cpu,rsi,(uint8_t *)&sa,sizeof(sa),0);
     if(sa.sa_family!=2){
-        fprintf(fp,"sf_family= %d ,port= %d ,ip= %d.%d.%d.%d\n",sa.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
+        fprintf(fp,"S,%d,%d,%d.%d.%d.%d\n",sa.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
         return ms;
     }
     else{
@@ -433,7 +433,8 @@ static struct mySocket printSocket(FILE * fp, CPUState *cpu,my_target_ulong rsi)
         ms.ip[1] = sa.sa_data[3];
         ms.ip[2] = sa.sa_data[4];
         ms.ip[3] = sa.sa_data[5];
-        fprintf(fp,"sf_family= %d ,port= %d ,ip= %d.%d.%d.%d\n",ms.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
+        //fprintf(fp,"sf_family=%d,port=%d,ip=%d.%d.%d.%d\n",ms.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
+        fprintf(fp,"S,%d,%d,%d.%d.%d.%d\n",ms.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
         return ms;
     }
 }
@@ -500,6 +501,7 @@ static void traverseLinkMap(FILE *fp ,CPUState *cpu,my_target_ulong plinkmap){
     fprintf(fp,"linkmap end\n");
 }
 
+/*
 static void printLinkMap(FILE * fp,CPUState *cpu,my_target_ulong got){
     //target_ulong plinkmap = getLinkMapStartAddrByGot(cpu,got);
     my_target_ulong plinkmap;
@@ -515,6 +517,7 @@ static void printLinkMap(FILE * fp,CPUState *cpu,my_target_ulong got){
     }
     traverseLinkMap(fp,cpu,plinkmap);
 }
+*/
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 extern my_target_ulong kernel_start,kernel_end,funcaddr[];
@@ -763,14 +766,14 @@ int cpu_exec(CPUState *cpu)
                                     if(NULL == stackWrite){
                                         exit(0);
                                     }
-                                    fprintf(stackWrite,"%d ----> %d,%d\n",(int)ppid,(int)pid,(int)tgid);
+                                    fprintf(stackWrite,"P,%d,%d,%d\n",(int)ppid,(int)pid,(int)tgid);
                                     //traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
                                     //printf("\n");
                                 }
                                 if(countCpuExec == 1 && inListFlag != -1){
                                     int pid = (int)getPid(cpu,task+pidOffset);
                                     if(IndexOf(&tracePidList,pid)==-1){
-                                        fprintf(stackWrite,"%d --> %d,%d\n",(int)ppid,(int)pid,(int)tgid);
+                                        fprintf(stackWrite,"P,%d,%d,%d\n",(int)ppid,(int)pid,(int)tgid);
                                         appendList(&tracePidList,&pid);
                                         //traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
                                         //printf("\n");
@@ -820,7 +823,7 @@ int cpu_exec(CPUState *cpu)
                                         fprintf(stackWrite,"\n");
                                         curThread->stack->pTop = stackTop;
 
-                                        printLinkMap(stackWrite,cpu,got);
+                                        //printLinkMap(stackWrite,cpu,got);
                                     }
 
                                     if(esp<kernelMinAddr){
@@ -914,7 +917,7 @@ int cpu_exec(CPUState *cpu)
                                                         traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                         my_qemu_log("**********************************************************\n");
 
-                                                        printLinkMap(stackWrite,cpu,got);
+                                                       //printLinkMap(stackWrite,cpu,got);
 
                                                         exit(0);
                                                     }
@@ -962,7 +965,7 @@ int cpu_exec(CPUState *cpu)
                                                             my_qemu_log("**********************************************************\n");
                                                             traverseList(&L,(TRAVERSEFUNC)printList,0);
                                                             my_qemu_log("**********************************************************\n");
-                                                            printLinkMap(stackWrite,cpu,got);
+                                                            //printLinkMap(stackWrite,cpu,got);
                                                             exit(0);
                                                         }
                                                     }
