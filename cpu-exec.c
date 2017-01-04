@@ -389,7 +389,8 @@ static my_target_ulong getPid(CPUState *cpu,my_target_ulong pidAddr){
 static void printStrParameter(FILE * fp, CPUState *cpu,my_target_ulong reg){
     char para[50];
     cpu_memory_rw_debug(cpu,reg,(uint8_t *)&para,sizeof(para),0);
-    fprintf(fp,MY_TARGET_FMT_lx",%s\n",reg,para);
+    //fprintf(fp,MY_TARGET_FMT_lx",%s\n",reg,para);
+    fprintf(fp,"%s\n",para);
     return;
 }
 
@@ -411,6 +412,7 @@ static struct mySocket printSocket(FILE * fp, CPUState *cpu,my_target_ulong rsi)
     struct mySocket ms={0,0,{0}};
     struct sockaddr sa;
     cpu_memory_rw_debug(cpu,rsi,(uint8_t *)&sa,sizeof(sa),0);
+////////
     if(sa.sa_family!=2){
         fprintf(fp,"S,%d,%d,%d.%d.%d.%d\n",sa.sa_family,ms.port,ms.ip[0],ms.ip[1],ms.ip[2],ms.ip[3]);
         return ms;
@@ -773,7 +775,7 @@ int cpu_exec(CPUState *cpu)
                                 if(countCpuExec == 1 && inListFlag != -1){
                                     int pid = (int)getPid(cpu,task+pidOffset);
                                     if(IndexOf(&tracePidList,pid)==-1){
-                                        fprintf(stackWrite,"P,%d,%d,%d\n",(int)ppid,(int)pid,(int)tgid);
+                                        fprintf(stackWrite,"P,%d,%d,%d,%s\n",(int)ppid,(int)pid,(int)tgid,processname);
                                         appendList(&tracePidList,&pid);
                                         //traverseList(&tracePidList,(TRAVERSEFUNC)printPidList,0);
                                         //printf("\n");
