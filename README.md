@@ -15,7 +15,7 @@ comm_struct/Makefile.objs //编译以上有关头文件
 
 ### 代码实现
 
-####vl.c文件
+#### vl.c文件
 
 新增加的的函数
 
@@ -65,7 +65,7 @@ read_configs();
    配置文件中，返回值必须出现在参数之前，而且，当没有配置返回值时，默认按照int输出
    ```
 
-####cpu-exec.c文件
+#### cpu-exec.c文件
 
 截获qemu中的函数调用和返回主要通过修改该文件实现，该文件中增加了一下函数：
 
@@ -107,9 +107,13 @@ if(tb->type==TB_CALL || tb->type==TB_RET){
 record_info(env,cpu,tb);
 ```
 
-####target-i386/translate.c
+#### target-i386/translate.c
 
 对tb翻译块中的call和return进行标记，可以查看TB__CALL和TB_RET相关的位置
+
+#### qemu-log.c和 include/qemu/log.h
+
+加入了-d func参数来指定对函数进行跟踪
 
 ### 扩展QEMU-TRACER
 
@@ -389,7 +393,7 @@ QEMU的版本：2.4.50
    3. 二进制文件则可以使用objdump来反汇编得到函数入口地址
    ```
 
-7. 配置完成后，在configs.txt所在的文件夹下运行QEMU-TRACER，主要是指定-d func 和-D log参数
+7. 配置完成后，在configs.txt所在的文件夹下运行QEMU-TRACER，主要是指定-d func 和-D log参数，-d 参数指定日志输出项目，对qemu做了一定的修改，并增加了一个选项func可以追踪函数调用；-D 参数指定日志输出文件
 
    ```
    qemu-system-x86_64 -m 2G lubuntu.raw -d func -D log
@@ -408,23 +412,3 @@ QEMU的版本：2.4.50
 
 
 —by aquan
-
- aooquan@gmail.com
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
