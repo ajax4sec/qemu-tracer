@@ -3050,8 +3050,8 @@ my_target_ulong kernel_addr_end;
 my_target_ulong user_addr_begin ;
 my_target_ulong user_addr_end;
 
-int is_record_kernel;
-int is_record_user;
+//int is_record_kernel;
+//int is_record_user;
 
 
 static int print_str_list(char * a,void *e){
@@ -3172,8 +3172,11 @@ static int read_configs(void){
         //record specified process func with parameter
         trace_type = RECORD_PROCESS_FUNC_WITH_PARA;
     }
-    else if(strstr(line,"trace_type:other")!=NULL){
-        trace_type = RECORD_OTHER;
+    else if(strstr(line,"trace_type:normal")!=NULL){
+        trace_type = RECORD_NORMAL;
+    }else{
+        printf("trace type error!!!");
+        exit(0);
     }
 
     //read specified address and paramenter info 
@@ -3213,8 +3216,8 @@ static int read_configs(void){
         }
     }
 
-    is_record_kernel = IndexOfStr(&program_list,(char *)"kernel");
-    is_record_user = IndexOfStr(&program_list,(char *)"user");
+//    is_record_kernel = IndexOfStr(&program_list,(char *)"kernel");
+//    is_record_user = IndexOfStr(&program_list,(char *)"user");
 
     return 0;
 }

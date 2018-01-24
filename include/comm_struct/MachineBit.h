@@ -68,7 +68,7 @@ typedef uint64_t my_target_ulong;
 #define RECORD_ALL_FUNC_WITH_PARA 3
 #define RECORD_PROCESS_FUNC_WITHOUT_PARA 4 
 #define RECORD_PROCESS_FUNC_WITH_PARA 5
-#define RECORD_OTHER 6
+#define RECORD_NORMAL 6
 
 #define FUNC_MAX 300
 #define PARAM_MAX 6

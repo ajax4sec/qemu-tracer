@@ -25,7 +25,6 @@ map_reg() //去读configs/reg_map.txt中寄存器与参数、返回值的对应�
 ```
 
 在main函数中调用read_configs函数，读取配置文件信息
-
 ```
 if (qemu_loglevel_mask(CPU_LOG_FUNC)) {    
 /*

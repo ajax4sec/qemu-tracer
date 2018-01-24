@@ -598,7 +598,8 @@ extern target_ulong got;
 extern bool print_funcstack;
 extern List  program_list;
 extern my_target_ulong  kernel_addr_begin,kernel_addr_end,user_addr_begin,user_addr_end;
-extern int is_record_kernel,is_record_user,trace_type;
+//extern int is_record_kernel,is_record_user,trace_type;
+extern int trace_type;
 
 bool output=false;
 ////////////////////////////////////////////////////
@@ -1054,7 +1055,7 @@ static void record_info(CPUArchState *env,CPUState *cpu,TranslationBlock *tb){
                     }
                     return;
                 }
-            case RECORD_OTHER:
+            case RECORD_NORMAL:
                 break;
             default:
                 return ;
@@ -1090,31 +1091,22 @@ static void record_info(CPUArchState *env,CPUState *cpu,TranslationBlock *tb){
                         return ;
                     }
                 }
-            case RECORD_OTHER:
+            case RECORD_NORMAL:
                 break;
             default:
                 return;
         }
     }
 
-
-/////
-    /*
-    is_record_kernel = -1;
-    is_record_kernel = IndexOfStr(&program_list,(char *)"kernel");
-    int is_record_user = -1;
-    is_record_user = IndexOfStr(&program_list,(char *)"user");
-    */
-
     if(ld.curAddr>=kernel_addr_begin && ld.curAddr<kernel_addr_end){
-        if(is_record_kernel!=-1 || is_record_process !=-1){
+        if(is_record_process != -1){
             print_log_to_file(ld);
             print_all_regs_para(env);
         }
     }
 
     if(ld.curAddr>=user_addr_begin && ld.curAddr <user_addr_end){
-        if(is_record_user !=-1 ||is_record_process!=-1){
+        if(is_record_process != -1){
             print_log_to_file(ld);
             print_all_regs_para(env);
         }
