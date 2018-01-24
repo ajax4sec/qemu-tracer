@@ -15,7 +15,7 @@ comm_struct/Makefile.objs //编译以上有关头文件
 
 ### 代码实现
 
-##### vl.c文件
+####vl.c文件
 
 新增加的的函数
 
@@ -65,7 +65,7 @@ read_configs();
    配置文件中，返回值必须出现在参数之前，而且，当没有配置返回值时，默认按照int输出
    ```
 
-##### cpu-exec.c文件
+####cpu-exec.c文件
 
 截获qemu中的函数调用和返回主要通过修改该文件实现，该文件中增加了一下函数：
 
@@ -107,7 +107,7 @@ if(tb->type==TB_CALL || tb->type==TB_RET){
 record_info(env,cpu,tb);
 ```
 
-##### target-i386/translate.c
+####target-i386/translate.c
 
 对tb翻译块中的call和return进行标记，可以查看TB__CALL和TB_RET相关的位置
 
