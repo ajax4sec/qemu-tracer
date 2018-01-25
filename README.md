@@ -313,7 +313,7 @@ QEMU的版本：2.4.50
    #define QEMULOG 1 //whether record the functions call log
    ```
 
-2. include/comm_struct/MachineBit.h文件涉及到各个系统中相关结构体成员的偏移，例如下面的宏中，```#define commOffset 0x3f0```表示在Lubuntu系统中，task_struct的comm字段相对于task_struct的偏移，计算结构体成员的偏移可以使用内核可加载模块，并通过C语言的offset函数来计算，具体[参考](https://github.com/caoruidong/comm-offset)，如果是busybox环境中，不具备编译内核可加载模块的环境，可以事先在外部编译好模块后，然后在busybox中加载。
+2. include/comm_struct/MachineBit.h文件涉及到各个系统中相关结构体成员的偏移，例如下面的宏中，```#define commOffset 0x3f0```表示在Lubuntu系统中，task_struct的comm字段相对于task_struct的偏移，计算结构体成员的偏移可以使用内核可加载模块，并通过C语言的offset函数来计算，具体参考configs/comm-offset文件夹中的内容；如果是busybox环境中，不具备编译内核可加载模块的环境，可以事先在外部编译好模块后，然后在busybox中加载。
 
    ```
    #if isLubuntu32
