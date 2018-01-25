@@ -149,9 +149,9 @@ record_info(env,cpu,tb);
 
       ​
 
-#使用前的准备工作
+# 使用前的准备工作
 
-###安装QEMU-TRACER
+### 安装QEMU-TRACER
 
 QEMU的版本：2.4.50  
 
@@ -167,17 +167,17 @@ QEMU的版本：2.4.50
 
 3. 配置:
 
-​	x86_32
+  ​x86_32
 
-​	```./configure --target-list=i386-softmmu --enable-sdl```
+  ​```./configure --target-list=i386-softmmu --enable-sdl```
 
-​	x86_64
+  ​x86_64
 
-​	```./configure --target-list=x86_64-softmmu --enable-sd```
+  ​```./configure --target-list=x86_64-softmmu --enable-sd```
 
-​	参考 ./configure --help
+  ​参考 ./configure --help
 
-​	目前在跟踪状态下，不管客户机操作系统是32位还是64位，QEMU-TRACER统一编译成x86_64平台
+  ​目前在跟踪状态下，不管客户机操作系统是32位还是64位，QEMU-TRACER统一编译成x86_64平台
 
 4. 编译：
 
@@ -378,6 +378,7 @@ QEMU的版本：2.4.50
    	all_func_with_param //跟踪所有函数，同时打印参数，但是参数只是寄存器中的值，没有做任何解析
    	process_func_without_param //跟踪指定程序的所有函数，但没有参数
    	process_func_with_param //跟踪指定的程序的函数，打印寄存器的值
+   	nomal //跟踪指定范围能的函数，并根据funcstack的配置来跟踪函数调用栈
    	
    第七行，指定特定的跟踪函数，第一个为函数地址，后面的会成对出现例如(0，int)，(1，string)，数字表示参数或返回值位置，第二项表示类型。注意：0表示返回值的位置，int表示返回值类型，0,int必须放在最前面，不关心返回值的话，可以写成ffffffff12345678,1,string，但是不能写成ffffffff12345678,1,string,0,int。跟踪多个函数时，地址需要按从小到大的顺序排列。
 
